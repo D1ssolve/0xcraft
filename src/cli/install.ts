@@ -12,6 +12,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { runDoctor, printDoctorResults } from "./doctor";
+import { parseJsonc } from "../core/config/config-loader";
 
 const HOME = os.homedir();
 const OPENCODE_CONFIG_DIR = path.join(HOME, ".config", "opencode");
@@ -49,7 +50,7 @@ async function registerPlugin(): Promise<void> {
 
   if (fs.existsSync(OPENCODE_CONFIG_PATH)) {
     try {
-      config = JSON.parse(fs.readFileSync(OPENCODE_CONFIG_PATH, "utf-8"));
+      config = parseJsonc(fs.readFileSync(OPENCODE_CONFIG_PATH, "utf-8"));
     } catch {
       console.log("  ⚠ Could not parse opencode.json — creating backup and starting fresh");
       const backup = OPENCODE_CONFIG_PATH + ".backup";

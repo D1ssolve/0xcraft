@@ -1,9 +1,25 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createConfigHandler } from "./hooks/config-handler";
 import { createAgentsGuardHook } from "./hooks/agents-guard";
 import { createCavemanBootstrapHook } from "./hooks/caveman-bootstrap";
 import { createGitWorktreeBootstrapHook } from "./hooks/git-worktree-bootstrap";
 import { mergeConfig, loadConfig, type ZeroxCraftConfig } from "../../core/config";
 import { builtinHooks } from "../../core/hooks";
+
+function findPackageRoot(startDir: string): string {
+  let current = startDir;
+  for (let i = 0; i < 10; i++) {
+    if (fs.existsSync(path.join(current, "agents")) && fs.existsSync(path.join(current, "skills"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return process.cwd();
+}
 
 /**
  * 0xcraft OpenCode plugin entry point.
@@ -22,25 +38,32 @@ export async function createPlugin(input: {
   [key: string]: unknown;
 }): Promise<Record<string, unknown>> {
   const projectRoot = input.worktree || input.directory || process.cwd();
+  const packageRoot = findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
 
   // Load config from walked project configs + user config
   const { config: rawConfig } = loadConfig(projectRoot);
   const userConfig: Partial<ZeroxCraftConfig> = rawConfig as Partial<ZeroxCraftConfig>;
   const config = mergeConfig(userConfig);
 
-  // Determine which hooks are active
+  // Determine which hooks are active (respects both boolean flags AND disabledHooks)
   const enabledHooks = builtinHooks.filter(
     (h) => !config.disabledHooks.includes(h.id)
   );
+  const isHookActive = (hookId: string): boolean =>
+    enabledHooks.some((h) => h.id === hookId);
 
   // Build the hooks object
   const hooks: Record<string, unknown> = {};
 
   // Config hook — registers agents, skills, MCPs
-  hooks.config = createConfigHandler({ config, projectRoot });
+  hooks.config = createConfigHandler({ config, projectRoot, pkgRoot: packageRoot });
 
   // Message transform hook — injects bootstrap prompts on first message
-  if (config.agentsGuardEnabled || config.cavemanBootstrapEnabled || config.gitWorktreeBootstrapEnabled) {
+  const agentsGuardActive = config.agentsGuardEnabled && isHookActive("agents-guard");
+  const cavemanActive = config.cavemanBootstrapEnabled && isHookActive("caveman-bootstrap");
+  const worktreeActive = config.gitWorktreeBootstrapEnabled && isHookActive("git-worktree-bootstrap");
+
+  if (agentsGuardActive || cavemanActive || worktreeActive) {
     hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: any) => {
       if (!output.messages?.length) return;
 
@@ -59,19 +82,19 @@ export async function createPlugin(input: {
 
       const bootstrapParts: string[] = [];
 
-      if (config.agentsGuardEnabled) {
+      if (agentsGuardActive) {
         const agentsGuard = createAgentsGuardHook({ projectRoot });
         const guardText = agentsGuard.buildBootstrap();
         if (guardText) bootstrapParts.push(guardText);
       }
 
-      if (config.cavemanBootstrapEnabled) {
+      if (cavemanActive) {
         const caveman = createCavemanBootstrapHook();
         const cavemanText = caveman.buildBootstrap();
         if (cavemanText) bootstrapParts.push(cavemanText);
       }
 
-      if (config.gitWorktreeBootstrapEnabled) {
+      if (worktreeActive) {
         const worktreeHook = createGitWorktreeBootstrapHook({ projectRoot });
         const worktreeText = worktreeHook.buildBootstrap();
         if (worktreeText) bootstrapParts.push(worktreeText);

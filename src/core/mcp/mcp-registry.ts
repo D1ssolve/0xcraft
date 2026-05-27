@@ -68,5 +68,5 @@ export function getMcpByName(name: string): McpRegistryEntry | undefined {
 }
 
 export function getEnabledMcpServers(disabled: string[] = []): McpRegistryEntry[] {
-  return builtinMcpServers.filter((m) => !disabled.includes(m.name));
+  return builtinMcpServers.filter((m) => m.enabledByDefault && !disabled.includes(m.name));
 }

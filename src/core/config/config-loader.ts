@@ -25,11 +25,17 @@ export function stripJsonc(input: string): string {
 
     // String literal — pass through verbatim
     if (ch === '"') {
-      // Check for escaped quote
-      if (inString && i > 0 && input[i - 1] === "\\") {
-        result += ch;
-        i++;
-        continue;
+      // Check for escaped quote (but not an escaped backslash before the quote)
+      if (inString) {
+        let backslashes = 0;
+        let k = i - 1;
+        while (k >= 0 && input[k] === "\\") { backslashes++; k--; }
+        if (backslashes % 2 === 1) {
+          // Odd number of backslashes → quote is escaped, stay in string
+          result += ch;
+          i++;
+          continue;
+        }
       }
       inString = !inString;
       result += ch;
@@ -59,12 +65,21 @@ export function stripJsonc(input: string): string {
       continue;
     }
 
+    // Trailing comma: skip if next non-whitespace is } or ]
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < input.length && (input[j] === " " || input[j] === "\t" || input[j] === "\n" || input[j] === "\r")) {
+        j++;
+      }
+      if (j < input.length && (input[j] === "}" || input[j] === "]")) {
+        i++; // skip the comma
+        continue;
+      }
+    }
+
     result += ch;
     i++;
   }
-
-  // Remove trailing commas before } or ]
-  result = result.replace(/,\s*([}\]])/g, "$1");
 
   return result;
 }
@@ -84,8 +99,8 @@ function readConfigFile(filePath: string): Record<string, unknown> | null {
         const content = fs.readFileSync(fullPath, "utf-8");
         return parseJsonc(content);
       }
-    } catch {
-      // Skip unreadable files
+    } catch (err) {
+      console.warn(`[0xcraft] Failed to parse config file "${fullPath}": ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return null;
@@ -166,8 +181,9 @@ function deepMerge(
  */
 export function loadConfig(
   projectDir?: string,
+  homeDir?: string,
 ): { config: Record<string, unknown>; sources: string[] } {
-  const home = os.homedir();
+  const home = homeDir ?? os.homedir();
   const startDir = projectDir || process.cwd();
   const sources: string[] = [];
 
@@ -184,15 +200,15 @@ export function loadConfig(
     sources.push(`user: ${userConfigPath}`);
   }
 
-  // Merge: defaults ← walked (far to near) ← user
+  // Merge: defaults ← user ← walked (far to near). Project-local config wins.
   let merged: Record<string, unknown> = {};
-
-  for (const walked of walkedConfigs) {
-    merged = deepMerge(merged, walked);
-  }
 
   if (userConfig) {
     merged = deepMerge(merged, userConfig);
+  }
+
+  for (const walked of walkedConfigs) {
+    merged = deepMerge(merged, walked);
   }
 
   return { config: merged, sources };

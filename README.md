@@ -16,7 +16,7 @@ You're juggling 17 agents, 20 skills, 3 plugins, and 4 MCP servers. Configuring 
 
 ## Architecture
 
-```
+```txt
 src/core/          ← Harness-agnostic. Zero dependencies.
   agents/          ← AgentDefinition data + registry
   skills/          ← SkillDefinition data + registry

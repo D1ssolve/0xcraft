@@ -53,7 +53,8 @@ export const defaultConfig: Required<ZeroxCraftConfig> = {
   mcpServers: {},
   agentsGuardEnabled: true,
   cavemanBootstrapEnabled: true,
-  gitWorktreeBootstrapEnabled: true,
+  // Disabled until skills/git-worktree/SKILL.md is created
+  gitWorktreeBootstrapEnabled: false,
   customSkillPaths: [],
   customAgentPaths: [],
 };

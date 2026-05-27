@@ -69,6 +69,14 @@ export const builtinSkills: SkillDefinition[] = [
     autoLoad: true, // injected by caveman hook on session start
   },
   {
+    id: "chatgpt-linkedin-skill",
+    name: "ChatGPT LinkedIn Skill",
+    description:
+      "Generate and save LinkedIn-style engineering article when task contains non-default or user-requested work.",
+    skillFile: "skills/chatgpt-linkedin-skill/SKILL.md",
+    tags: ["writing", "linkedin"],
+  },
+  {
     id: "code-review-orchestrator",
     name: "Code Review Orchestrator",
     description:
@@ -106,14 +114,6 @@ export const builtinSkills: SkillDefinition[] = [
       "Run single-file C# programs as scripts for quick experimentation, prototyping, and concept testing.",
     skillFile: "skills/csharp-scripts/SKILL.md",
     tags: ["dotnet", "scripts", "experimentation"],
-  },
-  {
-    id: "customize-opencode",
-    name: "Customize OpenCode",
-    description:
-      "Use ONLY when editing or creating opencode's own configuration: opencode.json, opencode.jsonc, files under .opencode/, or files under ~/.config/opencode/.",
-    skillFile: "skills/customize-opencode/SKILL.md",
-    tags: ["opencode", "configuration"],
   },
   {
     id: "implementation-patterns",
@@ -232,6 +232,14 @@ export const builtinSkills: SkillDefinition[] = [
       "Use when you have a spec or requirements for a multi-step task, before touching code.",
     skillFile: "skills/writing-plans/SKILL.md",
     tags: ["planning", "methodology"],
+  },
+  {
+    id: "efcore-postgres-enum",
+    name: "EF Core PostgreSQL Enum",
+    description:
+      "Mandatory workflow for PostgreSQL enum synchronization across C# enums, Npgsql token mappings, NpgsqlContributor registration, and EF Core migrations. Trigger on: enum value add/remove, new enum type creation, ALTER TYPE, CREATE TYPE, EnumTokens or NpgsqlContributor changes, or migration errors like '22P02 invalid input value for enum'.",
+    skillFile: "skills/efcore-postgres-enum/SKILL.md",
+    tags: ["dotnet", "postgres", "efcore", "migration"],
   },
 ];
 
