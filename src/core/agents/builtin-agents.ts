@@ -17,7 +17,8 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Analyzes incoming tasks, loads pm-routing skill, composes the right chain of subagents. Does not write business logic itself — delegates all substantive work.",
     mode: "primary",
-    model: "github-copilot/gpt-5.5",
+    // model: "github-copilot/gpt-5.5",
+    model: "github-copilot/claude-opus-4.7",
     color: "accent",
     temperature: 0.2,
     permissions: {
@@ -48,7 +49,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Implements server-side logic, REST/GraphQL APIs, database integrations, auth systems, and backend infrastructure. Tests are part of implementation, not separate.",
     mode: "subagent",
-    model: "github-copilot/gpt-5.5",
+    model: "github-copilot/claude-opus-4.7",
     color: "secondary",
     temperature: 0.3,
     permissions: {
@@ -125,7 +126,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Technical research specialist. Finds the best available solution via Context7 MCP and web search. Produces .ai/research.md with evidence, trade-offs, and recommendations.",
     mode: "subagent",
-    model: "github-copilot/gpt-5.5",
+    model: "github-copilot/claude-opus-4.7",
     color: "info",
     temperature: 0.5,
     permissions: {
@@ -199,7 +200,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Runs spec-driven GPT and Sonnet candidates in parallel, compares with a strict rubric, and synthesizes canonical .ai/spec.md with provenance.",
     mode: "subagent",
-    model: "github-copilot/gpt-5.5",
+    model: "github-copilot/claude-opus-4.7",
     color: "info",
     temperature: 0.4,
     permissions: {
@@ -290,7 +291,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Runs system-architect GPT and Sonnet candidates in parallel, compares with a strict rubric, and synthesizes canonical .ai/adr.md + .ai/tasks.md with provenance.",
     mode: "subagent",
-    model: "github-copilot/gpt-5.5",
+    model: "github-copilot/claude-opus-4.7",
     color: "warning",
     temperature: 0.4,
     permissions: {

@@ -8,6 +8,8 @@
 node_modules/
 
 # Build output
+# Includes generated Claude Code plugin output:
+# dist/claude-code-plugin/0xcraft/ is ephemeral and recreated by `0xcraft claude-code generate`.
 dist/
 
 # Platform binaries (built, not committed)
