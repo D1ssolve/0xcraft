@@ -113,6 +113,8 @@ bun run typecheck
 bun test
 ```
 
+Manual verification note: restart OpenCode after changing plugin code, config, agents, or skills so the runtime reloads the updated package assets and hooks.
+
 ## License
 
 MIT

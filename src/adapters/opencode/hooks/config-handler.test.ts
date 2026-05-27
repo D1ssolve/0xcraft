@@ -25,6 +25,71 @@ describe("createConfigHandler", () => {
     expect(inputConfig.agents).toBeUndefined();
   });
 
+  test("normalizes malformed top-level OpenCode config shapes", async () => {
+    const inputConfig: Record<string, unknown> = {
+      agent: "not-an-object",
+      skills: 42,
+      mcp: ["not", "a", "map"],
+    };
+    const handler = createConfigHandler({
+      config: mergeConfig({}),
+      projectRoot: "/tmp/project",
+      pkgRoot: process.cwd(),
+    });
+
+    await handler(inputConfig);
+
+    const agents = inputConfig.agent as Record<string, Record<string, unknown>>;
+    const skills = inputConfig.skills as { paths: string[] };
+    const mcp = inputConfig.mcp as Record<string, Record<string, unknown>>;
+    expect(Array.isArray(inputConfig.agent)).toBe(false);
+    expect(Array.isArray(inputConfig.skills)).toBe(false);
+    expect(Array.isArray(inputConfig.mcp)).toBe(false);
+    expect(agents["team-lead"]?.prompt).toContain("# Team Lead");
+    expect(skills.paths).toBeArray();
+    expect(skills.paths).toContain(`${process.cwd()}/skills/chatgpt-linkedin-skill`);
+    expect(mcp.context7).toEqual({
+      type: "remote",
+      url: "https://mcp.context7.com/mcp",
+    });
+  });
+
+  test("normalizes non-array skills.paths", async () => {
+    const inputConfig: Record<string, unknown> = {
+      agent: {},
+      skills: { paths: "not-an-array" },
+      mcp: {},
+    };
+    const handler = createConfigHandler({
+      config: mergeConfig({}),
+      projectRoot: "/tmp/project",
+      pkgRoot: process.cwd(),
+    });
+
+    await handler(inputConfig);
+
+    const skills = inputConfig.skills as { paths: string[] };
+    expect(skills.paths).toBeArray();
+    expect(skills.paths).toContain(`${process.cwd()}/skills/chatgpt-linkedin-skill`);
+  });
+
+  test("mutates an initially empty OpenCode config object", async () => {
+    const inputConfig: Record<string, unknown> = {};
+    const handler = createConfigHandler({
+      config: mergeConfig({}),
+      projectRoot: "/tmp/project",
+      pkgRoot: process.cwd(),
+    });
+
+    await handler(inputConfig);
+
+    expect(inputConfig.agent).toBeObject();
+    expect(inputConfig.skills).toBeObject();
+    expect(inputConfig.mcp).toBeObject();
+    expect((inputConfig.skills as { paths: string[] }).paths).toBeArray();
+    expect(inputConfig.agents).toBeUndefined();
+  });
+
   test("lets user MCP config override built-ins and maps env to environment", async () => {
     const inputConfig: Record<string, unknown> = { agent: {}, skills: { paths: [] }, mcp: {} };
     const handler = createConfigHandler({

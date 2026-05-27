@@ -114,6 +114,15 @@ function toOpenCodeMcp(server: {
   return null;
 }
 
+function ensureRecord(config: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = config[key];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    config[key] = {};
+  }
+
+  return config[key] as Record<string, unknown>;
+}
+
 /**
  * Creates the config hook handler.
  *
@@ -141,8 +150,7 @@ export function createConfigHandler(args: {
     });
 
     // Ensure agent object exists
-    if (!inputConfig.agent) inputConfig.agent = {};
-    const agents = inputConfig.agent as Record<string, Record<string, unknown>>;
+    const agents = ensureRecord(inputConfig, "agent") as Record<string, Record<string, unknown>>;
 
     for (const agent of enabledAgents) {
       const modelOverride = config.modelOverrides[agent.id];
@@ -181,8 +189,7 @@ export function createConfigHandler(args: {
       return true;
     });
 
-    if (!inputConfig.skills) inputConfig.skills = {};
-    const skills = inputConfig.skills as Record<string, unknown>;
+    const skills = ensureRecord(inputConfig, "skills");
     if (!Array.isArray(skills.paths)) skills.paths = [];
     const skillPaths = skills.paths as string[];
 
@@ -205,8 +212,7 @@ export function createConfigHandler(args: {
       return true;
     });
 
-    if (!inputConfig.mcp) inputConfig.mcp = {};
-    const mcp = inputConfig.mcp as Record<string, Record<string, unknown>>;
+    const mcp = ensureRecord(inputConfig, "mcp") as Record<string, Record<string, unknown>>;
 
     for (const mcpServer of enabledMcps) {
       const mcpConfig = toOpenCodeMcp(mcpServer);

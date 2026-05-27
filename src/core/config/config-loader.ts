@@ -15,6 +15,21 @@ import os from "os";
  */
 
 /** Strip JSONC comments and trailing commas for safe JSON.parse */
+export type DiagnosticLevel = "debug" | "info" | "warn" | "error";
+
+export interface DiagnosticEvent {
+  level: DiagnosticLevel;
+  code: string;
+  message: string;
+  extra?: Record<string, unknown>;
+}
+
+export type DiagnosticSink = (event: DiagnosticEvent) => void;
+
+export interface LoadConfigOptions {
+  diagnosticSink?: DiagnosticSink;
+}
+
 export function stripJsonc(input: string): string {
   let result = "";
   let inString = false;
@@ -90,8 +105,46 @@ export function parseJsonc(input: string): Record<string, unknown> {
   return JSON.parse(stripped);
 }
 
+function sanitizeConfigErrorMessage(err: unknown): string {
+  const errorName = err instanceof Error && err.name ? err.name : undefined;
+  const rawMessage = err instanceof Error ? err.message : String(err);
+  const redactedMessage = rawMessage.replace(/(["'`])(?:\\.|(?!\1)[\s\S])*\1/g, (_match, quote: string) => {
+    return `${quote}[redacted]${quote}`;
+  });
+
+  if (!errorName || redactedMessage.startsWith(`${errorName}:`)) {
+    return redactedMessage;
+  }
+
+  return `${errorName}: ${redactedMessage}`;
+}
+
+function reportConfigParseFailure(
+  fullPath: string,
+  err: unknown,
+  diagnosticSink?: DiagnosticSink,
+): void {
+  const errorMessage = sanitizeConfigErrorMessage(err);
+  const message = `Failed to parse config file "${fullPath}"`;
+
+  if (diagnosticSink) {
+    diagnosticSink({
+      level: "warn",
+      code: "config.parse.failed",
+      message,
+      extra: {
+        path: fullPath,
+        errorMessage,
+      },
+    });
+    return;
+  }
+
+  console.warn(`[0xcraft] ${message}: ${errorMessage}`);
+}
+
 /** Read and parse a JSONC file, returning null if it doesn't exist */
-function readConfigFile(filePath: string): Record<string, unknown> | null {
+function readConfigFile(filePath: string, options: LoadConfigOptions = {}): Record<string, unknown> | null {
   for (const ext of [".jsonc", ".json"]) {
     const fullPath = filePath + ext;
     try {
@@ -100,7 +153,7 @@ function readConfigFile(filePath: string): Record<string, unknown> | null {
         return parseJsonc(content);
       }
     } catch (err) {
-      console.warn(`[0xcraft] Failed to parse config file "${fullPath}": ${err instanceof Error ? err.message : String(err)}`);
+      reportConfigParseFailure(fullPath, err, options.diagnosticSink);
     }
   }
   return null;
@@ -110,13 +163,13 @@ function readConfigFile(filePath: string): Record<string, unknown> | null {
  * Walk from startDir up to stopDir, collecting 0xcraft config files.
  * Closer configs override farther ones.
  */
-function walkConfigs(startDir: string, stopDir: string): Record<string, unknown>[] {
+function walkConfigs(startDir: string, stopDir: string, options: LoadConfigOptions = {}): Record<string, unknown>[] {
   const configs: Record<string, unknown>[] = [];
   let current = startDir;
 
   while (current && current !== path.dirname(current)) {
     const configPath = path.join(current, ".opencode", "0xcraft");
-    const config = readConfigFile(configPath);
+    const config = readConfigFile(configPath, options);
     if (config) {
       configs.push(config);
     }
@@ -182,20 +235,21 @@ function deepMerge(
 export function loadConfig(
   projectDir?: string,
   homeDir?: string,
+  options: LoadConfigOptions = {},
 ): { config: Record<string, unknown>; sources: string[] } {
   const home = homeDir ?? os.homedir();
   const startDir = projectDir || process.cwd();
   const sources: string[] = [];
 
   // 1. Walked configs (closest wins, so we reverse to merge far-to-near)
-  const walkedConfigs = walkConfigs(startDir, home).reverse();
+  const walkedConfigs = walkConfigs(startDir, home, options).reverse();
   if (walkedConfigs.length > 0) {
     sources.push(`walked: ${startDir} → ${home}`);
   }
 
   // 2. User config
   const userConfigPath = path.join(home, ".config", "opencode", "0xcraft");
-  const userConfig = readConfigFile(userConfigPath);
+  const userConfig = readConfigFile(userConfigPath, options);
   if (userConfig) {
     sources.push(`user: ${userConfigPath}`);
   }

@@ -1,24 +1,92 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import type { Hooks, Plugin } from "@opencode-ai/plugin";
 import { createConfigHandler } from "./hooks/config-handler";
 import { createAgentsGuardHook } from "./hooks/agents-guard";
 import { createCavemanBootstrapHook } from "./hooks/caveman-bootstrap";
 import { createGitWorktreeBootstrapHook } from "./hooks/git-worktree-bootstrap";
 import { mergeConfig, loadConfig, type ZeroxCraftConfig } from "../../core/config";
 import { builtinHooks } from "../../core/hooks";
+import { createOpenCodeLogger } from "./logger";
 
-function findPackageRoot(startDir: string): string {
+type MutableConfigShape = Record<string, unknown>;
+type PluginInput = Parameters<Plugin>[0];
+
+interface CreatePluginOptions {
+  homeDir?: string;
+  packageStartDir?: string;
+  packageCwd?: string;
+}
+
+interface PluginRootInput {
+  worktree?: unknown;
+  directory?: unknown;
+}
+
+function usableRoot(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return path.resolve(trimmed);
+}
+
+function hasPackageAssets(root: string): boolean {
+  return fs.existsSync(path.join(root, "agents")) && fs.existsSync(path.join(root, "skills"));
+}
+
+export function resolvePluginRoot(input: PluginRootInput, client?: unknown): string {
+  const logger = createOpenCodeLogger({ client });
+  const worktree = usableRoot(input.worktree);
+  const directory = usableRoot(input.directory);
+
+  if (worktree) {
+    if (directory && worktree !== directory) {
+      logger.log({
+        level: "debug",
+        code: "opencode.root.worktree_directory_differ",
+        message: "OpenCode worktree and directory differ; using worktree.",
+        extra: { worktree, directory },
+      });
+    }
+    return worktree;
+  }
+
+  if (directory) return directory;
+
+  const cwd = process.cwd();
+  logger.log({
+    level: "warn",
+    code: "opencode.root.fallback.cwd",
+    message: "OpenCode root missing; using process.cwd().",
+    extra: { cwd },
+  });
+  return cwd;
+}
+
+export function resolvePackageRoot(args: { startDir: string; cwd?: string; client?: unknown }): string {
+  const logger = createOpenCodeLogger({ client: args.client });
+  const startDir = path.resolve(args.startDir);
+  const cwd = path.resolve(args.cwd ?? process.cwd());
   let current = startDir;
   for (let i = 0; i < 10; i++) {
-    if (fs.existsSync(path.join(current, "agents")) && fs.existsSync(path.join(current, "skills"))) {
+    if (hasPackageAssets(current)) {
       return current;
     }
     const parent = path.dirname(current);
     if (parent === current) break;
     current = parent;
   }
-  return process.cwd();
+
+  if (hasPackageAssets(cwd)) return cwd;
+
+  logger.log({
+    level: "warn",
+    code: "opencode.package_root.not_found",
+    message: "Unable to resolve 0xcraft package root with agents/ and skills/ assets.",
+    extra: { startDir, cwd },
+  });
+  return startDir;
 }
 
 /**
@@ -29,19 +97,18 @@ function findPackageRoot(startDir: string): string {
  *
  * The plugin function signature matches @opencode-ai/plugin's Plugin type.
  */
-export async function createPlugin(input: {
-  worktree?: string;
-  directory?: string;
-  project?: unknown;
-  client?: unknown;
-  $?: unknown;
-  [key: string]: unknown;
-}): Promise<Record<string, unknown>> {
-  const projectRoot = input.worktree || input.directory || process.cwd();
-  const packageRoot = findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
+export async function createPluginHooks(input: PluginInput, options: CreatePluginOptions = {}): Promise<Hooks> {
+  const projectRoot = resolvePluginRoot(input, input.client);
+  const packageRoot = resolvePackageRoot({
+    startDir: options.packageStartDir ?? path.dirname(fileURLToPath(import.meta.url)),
+    cwd: options.packageCwd,
+    client: input.client,
+  });
 
   // Load config from walked project configs + user config
-  const { config: rawConfig } = loadConfig(projectRoot);
+  const { config: rawConfig } = loadConfig(projectRoot, options.homeDir, {
+    diagnosticSink: createOpenCodeLogger({ client: input.client }).log,
+  });
   const userConfig: Partial<ZeroxCraftConfig> = rawConfig as Partial<ZeroxCraftConfig>;
   const config = mergeConfig(userConfig);
 
@@ -53,10 +120,13 @@ export async function createPlugin(input: {
     enabledHooks.some((h) => h.id === hookId);
 
   // Build the hooks object
-  const hooks: Record<string, unknown> = {};
+  const hooks: Hooks = {};
 
   // Config hook — registers agents, skills, MCPs
-  hooks.config = createConfigHandler({ config, projectRoot, pkgRoot: packageRoot });
+  const configHandler = createConfigHandler({ config, projectRoot, pkgRoot: packageRoot });
+  hooks.config = async (inputConfig) => {
+    await configHandler(inputConfig as unknown as MutableConfigShape);
+  };
 
   // Message transform hook — injects bootstrap prompts on first message
   const agentsGuardActive = config.agentsGuardEnabled && isHookActive("agents-guard");
@@ -80,19 +150,27 @@ export async function createPlugin(input: {
     [key: string]: unknown;
   }
 
-  if (agentsGuardActive || cavemanActive || worktreeActive) {
-    hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: TransformOutput) => {
-      if (!output.messages?.length) return;
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null;
 
-      const firstUser = output.messages.find((m) => m.info?.role === "user");
-      if (!firstUser?.parts?.length) return;
+  if (agentsGuardActive || cavemanActive || worktreeActive) {
+    hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: unknown) => {
+      if (!isRecord(output)) return;
+      const messages = (output as TransformOutput).messages;
+      if (!Array.isArray(messages) || messages.length === 0) return;
+
+      const firstUser = messages.find((m): m is OcMessage =>
+        isRecord(m) && isRecord(m.info) && m.info.role === "user"
+      );
+      if (!firstUser) return;
+      if (!Array.isArray(firstUser.parts) || firstUser.parts.length === 0) return;
 
       // Check if already injected by any of our markers
       const alreadyInjected = firstUser.parts.some(
-        (p) => p.type === "text" && (
-          p.text?.includes("AGENTS_GUARD_INJECTED") ||
-          p.text?.includes("CAVEMAN_BOOTSTRAP_INJECTED") ||
-          p.text?.includes("GIT_WORKTREE_BOOTSTRAP_INJECTED")
+        (p) => isRecord(p) && p.type === "text" && typeof p.text === "string" && (
+          p.text.includes("AGENTS_GUARD_INJECTED") ||
+          p.text.includes("CAVEMAN_BOOTSTRAP_INJECTED") ||
+          p.text.includes("GIT_WORKTREE_BOOTSTRAP_INJECTED")
         )
       );
       if (alreadyInjected) return;
@@ -120,10 +198,13 @@ export async function createPlugin(input: {
       if (bootstrapParts.length > 0) {
         const combinedBootstrap = bootstrapParts.join("\n\n");
         const referencePart = firstUser.parts[0];
-        firstUser.parts.unshift({ ...referencePart, type: "text", text: combinedBootstrap });
+        const basePart = isRecord(referencePart) ? referencePart : {};
+        firstUser.parts.unshift({ ...basePart, type: "text", text: combinedBootstrap });
       }
     };
   }
 
   return hooks;
 }
+
+export const createPlugin: Plugin = async (input) => createPluginHooks(input);
