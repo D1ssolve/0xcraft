@@ -1,8 +1,12 @@
 import fs from "fs";
+import path from "path";
 import type { ZeroxCraftConfig } from "../../../core/config";
 import { builtinAgents } from "../../../core/agents";
 import { builtinSkills } from "../../../core/skills";
 import { builtinMcpServers } from "../../../core/mcp";
+import type { AgentPermissions } from "../../../core/agents/agent-types";
+
+const SPEC_TEMPLATE_TOKEN = "{{SPEC_TEMPLATE_PATH}}";
 
 interface MarkdownAgentConfig {
   description?: string;
@@ -88,6 +92,28 @@ function readMarkdownAgent(filePath: string): MarkdownAgentConfig {
   };
 }
 
+function resolvePromptTokens(prompt: string, root: string): string {
+  if (!prompt.includes(SPEC_TEMPLATE_TOKEN)) return prompt;
+  const specTemplatePath = path.resolve(root, "templates", "spec-template.md");
+  return prompt.replaceAll(SPEC_TEMPLATE_TOKEN, specTemplatePath);
+}
+
+function resolveAgentPermissions(permissions: AgentPermissions, root: string): AgentPermissions {
+  const externalDirectory = permissions.external_directory;
+  if (!externalDirectory) return permissions;
+
+  const resolvedExternalDirectory: Record<string, "allow" | "deny"> = {};
+  for (const [pattern, access] of Object.entries(externalDirectory)) {
+    const resolvedPattern = pattern.startsWith("~") || path.isAbsolute(pattern) ? pattern : path.resolve(root, pattern);
+    resolvedExternalDirectory[resolvedPattern] = access;
+  }
+
+  return {
+    ...permissions,
+    external_directory: resolvedExternalDirectory,
+  };
+}
+
 function toOpenCodeMcp(server: {
   type: "local" | "remote";
   command?: string[];
@@ -155,6 +181,8 @@ export function createConfigHandler(args: {
     for (const agent of enabledAgents) {
       const modelOverride = config.modelOverrides[agent.id];
       const tempOverride = config.temperatureOverrides[agent.id];
+      const prompt = resolvePromptTokens(readPrompt(root, agent.promptFile), root);
+      const permission = resolveAgentPermissions(agent.permissions, root);
 
       agents[agent.id] = {
         ...(agents[agent.id] ?? {}),
@@ -163,8 +191,8 @@ export function createConfigHandler(args: {
         model: modelOverride ?? agent.model,
         temperature: tempOverride ?? agent.temperature,
         color: agent.color,
-        permission: agent.permissions,
-        prompt: readPrompt(root, agent.promptFile),
+        permission,
+        prompt,
       };
     }
 

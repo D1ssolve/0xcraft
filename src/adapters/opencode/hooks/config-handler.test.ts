@@ -22,6 +22,13 @@ describe("createConfigHandler", () => {
     expect(agents["team-lead"]?.prompt).toContain("# Team Lead");
     expect(agents["team-lead"]?.prompt).not.toContain("mode: primary");
     expect(agents["team-lead"]?.permission).toEqual(expect.objectContaining({ question: "allow" }));
+    expect(agents["spec-driven"]?.prompt).toContain("templates/spec-template.md");
+    const specDrivenPermission = agents["spec-driven"]?.permission as { external_directory?: Record<string, string> };
+    expect(specDrivenPermission.external_directory).toEqual(
+      expect.objectContaining({
+        [`${process.cwd()}/templates/*`]: "allow",
+      }),
+    );
     expect(inputConfig.agents).toBeUndefined();
   });
 

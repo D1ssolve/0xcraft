@@ -13,7 +13,7 @@ permission:
     "*": deny
   code-explorer: allow
   external_directory:
-    "~/.config/opencode/templates/*": allow
+    "templates/*": allow
 ---
 # Spec-Driven
 
@@ -76,7 +76,7 @@ After final approval: notify the user that the spec is ready for a coder agent a
 
 ## Spec Format
 
-Follow the template in `~/.config/opencode/templates/spec-template.md`.
+Follow the template in `{{SPEC_TEMPLATE_PATH}}`.
 Scale depth to task complexity - small fixes need less detail.
 
 ## Guidelines
