@@ -6,6 +6,6 @@
  */
 export { type AgentDefinition, type AgentPermissions, type TaskPermissions, resolveModel, builtinAgents, dualModeAgents, getAgentById, getPrimaryAgents, getSubagents } from "./agents";
 export { type SkillDefinition, type McpServerConfig as SkillMcpServerConfig, builtinSkills, getSkillById, getSkillsByTag, getAutoLoadSkills, getSkillsWithMcp } from "./skills";
-export { type ZeroxCraftConfig, type McpServerConfig, defaultConfig, mergeConfig } from "./config";
+export { type ZeroxCraftConfig, type McpServerConfig, defaultConfig, mergeConfig, stripJsonc, parseJsonc, loadConfig, validateConfig } from "./config";
 export { type HookDefinition, type HookType, builtinHooks, getHookById, getEnabledHooks } from "./hooks";
 export { type McpRegistryEntry, builtinMcpServers, getMcpByName, getEnabledMcpServers } from "./mcp";
