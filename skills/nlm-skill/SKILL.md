@@ -1,7 +1,11 @@
 ---
 name: nlm-skill
-description: "Expert guide for the NotebookLM CLI (`nlm`) and MCP server - interfaces for Google NotebookLM. Use this skill when users want to interact with NotebookLM programmatically, including: creating/managing notebooks, adding sources (URLs, YouTube, text, Google Drive), generating content (podcasts, reports, quizzes, flashcards, mind maps, slides, infographics, videos, data tables), conducting research, chatting with sources, or automating NotebookLM workflows. Triggers on mentions of \"nlm\", \"notebooklm\", \"notebook lm\", \"podcast generation\", \"audio overview\", or any NotebookLM-related automation task."
-version: "0.5.27"
+version: "0.6.12"
+description: "Expert guide for the NotebookLM CLI (`nlm`) and MCP server - interfaces for Google NotebookLM. Use this skill when users want to interact 
+with NotebookLM programmatically, including: creating/managing notebooks, adding sources (URLs, YouTube, text, Google Drive), generating content 
+(podcasts, reports, quizzes, flashcards, mind maps, slides, infographics, videos, data tables), conducting research, chatting with sources, or 
+automating NotebookLM workflows. Triggers on mentions of \"nlm\", \"notebooklm\", \"notebook lm\", \"podcast generation\", \"audio overview\", or any 
+NotebookLM-related automation task."
 ---
 
 # NotebookLM CLI & MCP Expert
@@ -50,14 +54,17 @@ nlm --version           # Check installed version
 
 1. **Always authenticate first**: Run `nlm login` before any operations
 2. **Sessions expire in ~20 minutes**: Re-run `nlm login` if commands start failing
-3. **⚠️ ALWAYS ASK USER BEFORE DELETE**: Before executing ANY delete command, ask the user for explicit confirmation. Deletions are **irreversible**. Show what will be deleted and warn about permanent data loss.
+3. **⚠️ ALWAYS ASK USER BEFORE DELETE**: Before executing ANY delete command, ask the user for explicit confirmation. Deletions are **irreversible**. 
+Show what will be deleted and warn about permanent data loss.
 4. **`--confirm` is REQUIRED**: All generation and delete commands need `--confirm` or `-y` (CLI) or `confirm=True` (MCP)
 5. **Research requires `--notebook-id`**: The flag is mandatory, not positional
 6. **Capture IDs from output**: Create/start commands return IDs needed for subsequent operations
 7. **Use aliases**: Simplify long UUIDs with `nlm alias set <name> <uuid>`
 8. **Check aliases before creating**: Run `nlm alias list` before creating a new alias to avoid conflicts with existing names.
-9. **DO NOT launch REPL**: Never use `nlm chat start` - it opens an interactive REPL that AI tools cannot control. Use `nlm notebook query` for one-shot Q&A instead.
-10. **Choose output format wisely**: Default output (no flags) is compact and token-efficient—use it for status checks. Use `--quiet` to capture IDs for piping. Only use `--json` when you need to parse specific fields programmatically.
+9. **DO NOT launch REPL**: Never use `nlm chat start` - it opens an interactive REPL that AI tools cannot control. Use `nlm notebook query` for one-shot
+Q&A instead.
+10. **Choose output format wisely**: Default output (no flags) is compact and token-efficient—use it for status checks. Use `--quiet` to capture IDs for
+piping. Only use `--json` when you need to parse specific fields programmatically.
 11. **Use `--help` when unsure**: Run `nlm <command> --help` to see available options and flags for any command.
 
 ## Workflow Decision Tree
@@ -136,11 +143,13 @@ nlm login profile delete <name>     # Delete a profile
 nlm login profile rename <old> <new> # Rename a profile
 ```
 
-**Multi-Profile Support**: Each profile gets its own isolated browser session (supports Chrome, Arc, Brave, Edge, Chromium, and more), so you can be logged into multiple Google accounts simultaneously.
+**Multi-Profile Support**: Each profile gets its own isolated browser session (supports Chrome, Arc, Brave, Edge, Chromium, and more), so you can be 
+logged into multiple Google accounts simultaneously.
 
 **Session lifetime**: ~20 minutes. Re-authenticate when commands fail with auth errors.
 
-**Switching MCP Accounts**: The MCP server always uses the active default profile. If you need to switch which Google account the MCP server is communicating with, you MUST use the CLI: run `nlm login switch <name>`. Your next MCP tool call will instantly use the new account.
+**Switching MCP Accounts**: The MCP server always uses the active default profile. If you need to switch which Google account the MCP server is 
+communicating with, you MUST use the CLI: run `nlm login switch <name>`. Your next MCP tool call will instantly use the new account.
 
 **Note**: Both MCP and CLI share the same authentication backend, so authenticating with one works for both.
 
@@ -148,7 +157,8 @@ nlm login profile rename <old> <new> # Rename a profile
 
 #### MCP Tools
 
-Use tools: `notebook_list`, `notebook_create`, `notebook_get`, `notebook_describe`, `notebook_query`, `notebook_rename`, `notebook_delete`. All accept `notebook_id` parameter. Delete requires `confirm=True`.
+Use tools: `notebook_list`, `notebook_create`, `notebook_get`, `notebook_describe`, `notebook_query`, `notebook_rename`, `notebook_delete`. All accept 
+`notebook_id` parameter. Delete requires `confirm=True`.
 
 #### CLI Commands
 ```bash
@@ -170,10 +180,13 @@ nlm notebook delete <id> --confirm     # PERMANENT deletion
 Use `source_add` with these `source_type` values:
 - `url` - Web page or YouTube URL (`url` param)
 - `text` - Pasted content (`text` + `title` params)
-- `file` - Local file upload (`file_path` param)
+- `file` - Local file upload (`file_path` param). Supported extensions: `PDF, TXT, MD, DOCX, CSV, EPUB, MP3, M4A, WAV, AAC, OGG, OPUS, MP4, JPG, JPEG, 
+PNG, GIF, WEBP`. Note: Image-bearing sources (PDF / JPG / PNG / etc.) feed Studio video generation's visual-crop pipeline — charts, photos, and diagrams
+may be extracted as on-screen aids in Video Overviews.
 - `drive` - Google Drive doc (`document_id` + `doc_type` params)
 
-Other tools: `source_list_drive`, `source_describe`, `source_get_content`, `source_rename`, `source_sync_drive` (requires `confirm=True`), `source_delete` (requires `confirm=True`).
+Other tools: `source_list_drive`, `source_describe`, `source_get_content`, `source_rename`, `source_sync_drive` (requires `confirm=True`), 
+`source_delete` (requires `confirm=True`).
 
 #### CLI Commands
 ```bash
@@ -183,6 +196,7 @@ nlm source add <nb-id> --url "https://youtube.com/..." # YouTube video
 nlm source add <nb-id> --text "content" --title "X"  # Pasted text
 nlm source add <nb-id> --drive <doc-id>              # Drive doc (auto-detect type)
 nlm source add <nb-id> --drive <doc-id> --type slides # Explicit type
+nlm source add <nb-id> --file "/path/to/diagram.png" --wait # Local file upload (images, PDFs, documents, audio, video)
 
 # Listing and viewing
 nlm source list <nb-id>                # Table of sources
@@ -236,6 +250,7 @@ nlm research status <nb-id> --full            # Full details
 # Import discovered sources
 nlm research import <nb-id> <task-id>            # Import all
 nlm research import <nb-id> <task-id> --indices 0,2,5  # Import specific
+nlm research import <nb-id> <task-id> --cited-only      # Import cited sources
 nlm research import <nb-id> <task-id> --timeout 600    # Custom timeout (default: 300s)
 ```
 
@@ -256,7 +271,8 @@ Use `studio_create` with `artifact_type` and type-specific options. All require 
 | `flashcards` | `difficulty`: easy/medium/hard |
 | `mind_map` | `title` |
 | `slide_deck` | `slide_format`: detailed_deck/presenter_slides, `slide_length`: short/default |
-| `infographic` | `orientation`: landscape/portrait/square, `detail_level`: concise/standard/detailed, `infographic_style`: auto_select/sketch_note/professional/bento_grid/editorial/instructional/bricks/clay/anime/kawaii/scientific |
+| `infographic` | `orientation`: landscape/portrait/square, `detail_level`: concise/standard/detailed, `infographic_style`: 
+auto_select/sketch_note/professional/bento_grid/editorial/instructional/bricks/clay/anime/kawaii/scientific |
 | `data_table` | `description` (REQUIRED) |
 
 **Common options**: `source_ids`, `language` (BCP-47 code), `focus_prompt`
@@ -338,7 +354,8 @@ nlm data-table create <id> "Extract all dates and events" --confirm
 
 #### MCP Tools
 
-Use `studio_status` to check progress (or rename with `action="rename"`). Use `download_artifact` with `artifact_type` and `output_path`. Use `export_artifact` with `export_type`: docs/sheets. Delete with `studio_delete` (requires `confirm=True`).
+Use `studio_status` to check progress (or rename with `action="rename"`). Use `download_artifact` with `artifact_type` and `output_path`. Use 
+`export_artifact` with `export_type`: docs/sheets. Delete with `studio_delete` (requires `confirm=True`).
 
 #### CLI Commands
 ```bash
@@ -365,7 +382,9 @@ nlm studio delete <nb-id> <artifact-id> --confirm
 
 **Status values**: `completed` (✓), `in_progress` (●), `failed` (✗)
 
-**Prompt Extraction**: The `studio_status` tool returns a `custom_instructions` field for each artifact. This contains the original focus prompt or custom instructions used to generate that artifact (e.g., the prompt for a "Create Your Own" report, or the focus topic for an Audio Overview). This is useful for retrieving the exact prompt that generated a successful artifact.
+**Prompt Extraction**: The `studio_status` tool returns a `custom_instructions` field for each artifact. This contains the original focus prompt or 
+custom instructions used to generate that artifact (e.g., the prompt for a "Create Your Own" report, or the focus topic for an Audio Overview). This is 
+useful for retrieving the exact prompt that generated a successful artifact.
 
 ### Renaming Resources
 
@@ -415,7 +434,8 @@ Use `chat_configure` with `goal`: default/learning_guide/custom. Use `note` with
 
 #### CLI Commands
 
-> ⚠️ **AI TOOLS: DO NOT USE `nlm chat start`** - It launches an interactive REPL that cannot be controlled programmatically. Use `nlm notebook query` for one-shot Q&A instead.
+> ⚠️ **AI TOOLS: DO NOT USE `nlm chat start`** - It launches an interactive REPL that cannot be controlled programmatically. Use `nlm notebook query` 
+for one-shot Q&A instead.
 
 For human users at a terminal:
 
@@ -449,7 +469,8 @@ nlm note delete <nb-id> <note-id> --confirm
 
 #### MCP Tools
 
-Use `notebook_share_status` to check, `notebook_share_public` to enable/disable public link, `notebook_share_invite` with `email` and `role`: viewer/editor.
+Use `notebook_share_status` to check, `notebook_share_public` to enable/disable public link, `notebook_share_invite` with `email` and `role`: 
+viewer/editor.
 
 #### CLI Commands
 ```bash
@@ -705,6 +726,6 @@ Wait between operations to avoid rate limits:
 ## Advanced Reference
 
 For detailed information, see:
-- **[references/command_reference.md](references/command_reference.md)**: Complete command signatures
-- **[references/troubleshooting.md](references/troubleshooting.md)**: Detailed error handling
-- **[references/workflows.md](references/workflows.md)**: End-to-end task sequences
+- **(references/command_reference.md)**: Complete command signatures
+- **(references/troubleshooting.md)**: Detailed error handling
+- **(references/workflows.md)**: End-to-end task sequences

@@ -180,7 +180,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Produces a high-rigor Sonnet candidate spec artifact at .ai/spec.sonnet.md for dual-run comparison. Preserves full spec quality gates and evidence discipline.",
     mode: "subagent",
-    model: "github-copilot/sonnet-4.6",
+    model: "github-copilot/claude-sonnet-4.6",
     color: "info",
     temperature: 0.4,
     permissions: {
@@ -267,7 +267,7 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Produces a high-rigor Sonnet architecture candidate at .ai/adr.sonnet.md and .ai/tasks.sonnet.md for dual comparison.",
     mode: "subagent",
-    model: "github-copilot/sonnet-4.6",
+    model: "github-copilot/claude-sonnet-4.6",
     color: "warning",
     temperature: 0.4,
     permissions: {

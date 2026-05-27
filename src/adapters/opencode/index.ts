@@ -63,16 +63,33 @@ export async function createPlugin(input: {
   const cavemanActive = config.cavemanBootstrapEnabled && isHookActive("caveman-bootstrap");
   const worktreeActive = config.gitWorktreeBootstrapEnabled && isHookActive("git-worktree-bootstrap");
 
+  interface MessagePart {
+    type: string;
+    text?: string;
+    [key: string]: unknown;
+  }
+
+  interface OcMessage {
+    info?: { role?: string; [key: string]: unknown };
+    parts?: MessagePart[];
+    [key: string]: unknown;
+  }
+
+  interface TransformOutput {
+    messages?: OcMessage[];
+    [key: string]: unknown;
+  }
+
   if (agentsGuardActive || cavemanActive || worktreeActive) {
-    hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: any) => {
+    hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: TransformOutput) => {
       if (!output.messages?.length) return;
 
-      const firstUser = output.messages.find((m: any) => m.info?.role === "user");
+      const firstUser = output.messages.find((m) => m.info?.role === "user");
       if (!firstUser?.parts?.length) return;
 
       // Check if already injected by any of our markers
       const alreadyInjected = firstUser.parts.some(
-        (p: any) => p.type === "text" && (
+        (p) => p.type === "text" && (
           p.text?.includes("AGENTS_GUARD_INJECTED") ||
           p.text?.includes("CAVEMAN_BOOTSTRAP_INJECTED") ||
           p.text?.includes("GIT_WORKTREE_BOOTSTRAP_INJECTED")

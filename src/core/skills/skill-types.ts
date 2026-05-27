@@ -142,7 +142,14 @@ export const builtinSkills: SkillDefinition[] = [
       {
         name: "mempalace",
         type: "local",
-        command: ["uvx", "--from", "mempalace", "python", "-m", "mempalace.mcp_server"],
+        command: [
+          "uvx",
+          "--from",
+          "mempalace",
+          "python",
+          "-m",
+          "mempalace.mcp_server",
+        ],
       },
     ],
   },
@@ -165,8 +172,11 @@ export const builtinSkills: SkillDefinition[] = [
   {
     id: "nlm-skill",
     name: "NotebookLM",
-    description:
-      "Expert guide for the NotebookLM CLI and MCP server — interfaces for Google NotebookLM. Creating/managing notebooks, adding sources, generating content, conducting research.",
+    description: `Expert guide for the NotebookLM CLI (\`nlm\`) and MCP server - interfaces for Google NotebookLM. Use this skill when users want to interact 
+with NotebookLM programmatically, including: creating/managing notebooks, adding sources (URLs, YouTube, text, Google Drive), generating content 
+(podcasts, reports, quizzes, flashcards, mind maps, slides, infographics, videos, data tables), conducting research, chatting with sources, or 
+automating NotebookLM workflows. Triggers on mentions of "nlm", "notebooklm", "notebook lm", "podcast generation", "audio overview", or any 
+NotebookLM-related automation task.`,
     skillFile: "skills/nlm-skill/SKILL.md",
     tags: ["notebooklm", "mcp", "research"],
     mcpServers: [
@@ -240,6 +250,14 @@ export const builtinSkills: SkillDefinition[] = [
       "Mandatory workflow for PostgreSQL enum synchronization across C# enums, Npgsql token mappings, NpgsqlContributor registration, and EF Core migrations. Trigger on: enum value add/remove, new enum type creation, ALTER TYPE, CREATE TYPE, EnumTokens or NpgsqlContributor changes, or migration errors like '22P02 invalid input value for enum'.",
     skillFile: "skills/efcore-postgres-enum/SKILL.md",
     tags: ["dotnet", "postgres", "efcore", "migration"],
+  },
+  {
+    id: "opencode-plugin-development",
+    name: "Opencode plugin development",
+    description:
+      "Use when creating, maintaining, reading, or debugging OpenCode plugins. Triggers on any work involving @opencode-ai/plugin, plugin hooks, custom tools for OpenCode, or opencode.json plugin configuration.",
+    skillFile: "skills/opencode-plugin-development/SKILL.md",
+    tags: ["opencode", "plugin", "ai"],
   },
 ];
 
