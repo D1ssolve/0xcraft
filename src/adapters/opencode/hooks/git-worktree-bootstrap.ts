@@ -1,3 +1,6 @@
+import path from "path";
+import fs from "fs";
+
 /**
  * Git Worktree bootstrap hook — injects git-worktree skill load instruction
  * when the project is inside a .tasks task folder or has a .git file.
@@ -32,6 +35,3 @@ Do NOT load the git-worktree skill again after this first load — it persists f
     },
   };
 }
-
-import path from "path";
-import fs from "fs";

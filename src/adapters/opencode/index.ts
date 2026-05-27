@@ -1,12 +1,8 @@
-import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 import { createConfigHandler } from "./hooks/config-handler";
 import { createAgentsGuardHook } from "./hooks/agents-guard";
 import { createCavemanBootstrapHook } from "./hooks/caveman-bootstrap";
 import { createGitWorktreeBootstrapHook } from "./hooks/git-worktree-bootstrap";
-import { mergeConfig, type ZeroxCraftConfig } from "../../core/config";
-import { builtinAgents } from "../../core/agents";
-import { builtinSkills } from "../../core/skills";
-import { builtinMcpServers } from "../../core/mcp";
+import { mergeConfig, loadConfig, type ZeroxCraftConfig } from "../../core/config";
 import { builtinHooks } from "../../core/hooks";
 
 /**
@@ -14,14 +10,22 @@ import { builtinHooks } from "../../core/hooks";
  *
  * This is the thin adapter that connects the harness-agnostic core
  * to the OpenCode plugin API. All business logic lives in core/.
+ *
+ * The plugin function signature matches @opencode-ai/plugin's Plugin type.
  */
-export async function createPlugin(input: PluginInput): Promise<Hooks> {
-  const { directory, worktree } = input;
-  const projectRoot = worktree || directory || process.cwd();
+export async function createPlugin(input: {
+  worktree?: string;
+  directory?: string;
+  project?: unknown;
+  client?: unknown;
+  $?: unknown;
+  [key: string]: unknown;
+}): Promise<Record<string, unknown>> {
+  const projectRoot = input.worktree || input.directory || process.cwd();
 
-  // TODO: Load user config from ~/.config/opencode/0xcraft.json[c]
-  // and walked project configs. For now, use defaults.
-  const userConfig: Partial<ZeroxCraftConfig> = {};
+  // Load config from walked project configs + user config
+  const { config: rawConfig } = loadConfig(projectRoot);
+  const userConfig: Partial<ZeroxCraftConfig> = rawConfig as Partial<ZeroxCraftConfig>;
   const config = mergeConfig(userConfig);
 
   // Determine which hooks are active
@@ -30,7 +34,7 @@ export async function createPlugin(input: PluginInput): Promise<Hooks> {
   );
 
   // Build the hooks object
-  const hooks: Hooks = {};
+  const hooks: Record<string, unknown> = {};
 
   // Config hook — registers agents, skills, MCPs
   hooks.config = createConfigHandler({ config, projectRoot });
@@ -43,9 +47,13 @@ export async function createPlugin(input: PluginInput): Promise<Hooks> {
       const firstUser = output.messages.find((m: any) => m.info?.role === "user");
       if (!firstUser?.parts?.length) return;
 
-      // Check if already injected
+      // Check if already injected by any of our markers
       const alreadyInjected = firstUser.parts.some(
-        (p: any) => p.type === "text" && p.text?.includes("0XCRAFT_BOOTSTRAP")
+        (p: any) => p.type === "text" && (
+          p.text?.includes("AGENTS_GUARD_INJECTED") ||
+          p.text?.includes("CAVEMAN_BOOTSTRAP_INJECTED") ||
+          p.text?.includes("GIT_WORKTREE_BOOTSTRAP_INJECTED")
+        )
       );
       if (alreadyInjected) return;
 

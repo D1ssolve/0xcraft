@@ -8,7 +8,7 @@
  *   0xcraft version   — Print version
  */
 import { Command } from "commander";
-import { runDoctor } from "./doctor";
+import { runDoctor, printDoctorResults } from "./doctor";
 import { runInstall } from "./install";
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";

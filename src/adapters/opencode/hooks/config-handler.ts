@@ -1,24 +1,27 @@
-import type { Config } from "@opencode-ai/sdk";
 import type { ZeroxCraftConfig } from "../../../core/config";
 import { builtinAgents } from "../../../core/agents";
 import { builtinSkills } from "../../../core/skills";
 import { builtinMcpServers } from "../../../core/mcp";
-import path from "path";
-import fs from "fs";
 
 /**
  * Creates the config hook handler.
  *
  * This hook registers all agents, skills, and MCP servers
  * with OpenCode on startup.
+ *
+ * The OpenCode config hook receives a mutable config object.
+ * We mutate it directly to add agents, skills, and MCPs.
+ * This matches how oh-my-openagent handles it.
  */
 export function createConfigHandler(args: {
   config: Required<ZeroxCraftConfig>;
   projectRoot: string;
+  pkgRoot?: string;
 }) {
-  const { config, projectRoot } = args;
+  const { config, projectRoot, pkgRoot } = args;
+  const root = pkgRoot ?? projectRoot;
 
-  return async (input: Config): Promise<void> => {
+  return async (inputConfig: Record<string, unknown>): Promise<void> => {
     // Register agents
     const enabledAgents = builtinAgents.filter((agent) => {
       if (config.disabledAgents.includes(agent.id)) return false;
@@ -26,23 +29,19 @@ export function createConfigHandler(args: {
       return true;
     });
 
+    // Ensure agents object exists
+    if (!inputConfig.agents) inputConfig.agents = {};
+    const agents = inputConfig.agents as Record<string, Record<string, unknown>>;
+
     for (const agent of enabledAgents) {
       const modelOverride = config.modelOverrides[agent.id];
       const tempOverride = config.temperatureOverrides[agent.id];
 
-      // Resolve prompt file path
-      const skillDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../skills");
-      const agentDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../agents");
-
-      // Register agent in OpenCode config
-      // OpenCode's config hook allows adding agents, skills, and MCPs
-      if (input.agents) {
-        input.agents[agent.id] = {
-          ...input.agents[agent.id],
-          model: modelOverride ?? agent.model,
-          temperature: tempOverride ?? agent.temperature,
-        };
-      }
+      agents[agent.id] = {
+        ...(agents[agent.id] ?? {}),
+        model: modelOverride ?? agent.model,
+        temperature: tempOverride ?? agent.temperature,
+      };
     }
 
     // Register skill paths
@@ -52,23 +51,21 @@ export function createConfigHandler(args: {
       return true;
     });
 
-    if (input.skills) {
-      input.skills.paths = input.skills.paths || [];
-      for (const skill of enabledSkills) {
-        const skillPath = path.resolve(
-          path.dirname(new URL(import.meta.url).pathname),
-          `../../../../${skill.skillFile}`
-        );
-        const skillDir = path.dirname(skillPath);
-        if (!input.skills.paths.includes(skillDir)) {
-          input.skills.paths.push(skillDir);
-        }
+    if (!inputConfig.skills) inputConfig.skills = {};
+    const skills = inputConfig.skills as Record<string, unknown>;
+    if (!Array.isArray(skills.paths)) skills.paths = [];
+    const skillPaths = skills.paths as string[];
+
+    for (const skill of enabledSkills) {
+      const skillDir = `${root}/${skill.skillFile.replace(/\/SKILL\.md$/, "")}`;
+      if (!skillPaths.includes(skillDir)) {
+        skillPaths.push(skillDir);
       }
-      // Add custom skill paths
-      for (const customPath of config.customSkillPaths) {
-        if (!input.skills.paths.includes(customPath)) {
-          input.skills.paths.push(customPath);
-        }
+    }
+    // Add custom skill paths
+    for (const customPath of config.customSkillPaths) {
+      if (!skillPaths.includes(customPath)) {
+        skillPaths.push(customPath);
       }
     }
 
@@ -78,26 +75,27 @@ export function createConfigHandler(args: {
       return true;
     });
 
-    if (input.mcp) {
-      for (const mcp of enabledMcps) {
-        if (mcp.type === "local" && mcp.command) {
-          input.mcp[mcp.name] = {
-            type: "local",
-            command: mcp.command,
-          };
-        } else if (mcp.type === "remote" && mcp.url) {
-          input.mcp[mcp.name] = {
-            type: "remote",
-            url: mcp.url,
-            ...(mcp.headers ? { headers: mcp.headers } : {}),
-          };
-        }
+    if (!inputConfig.mcp) inputConfig.mcp = {};
+    const mcp = inputConfig.mcp as Record<string, Record<string, unknown>>;
+
+    for (const mcpServer of enabledMcps) {
+      if (mcpServer.type === "local" && mcpServer.command) {
+        mcp[mcpServer.name] = {
+          type: "local",
+          command: mcpServer.command,
+        };
+      } else if (mcpServer.type === "remote" && mcpServer.url) {
+        mcp[mcpServer.name] = {
+          type: "remote",
+          url: mcpServer.url,
+          ...(mcpServer.headers ? { headers: mcpServer.headers } : {}),
+        };
       }
-      // Add user-configured MCP servers
-      for (const [name, server] of Object.entries(config.mcpServers)) {
-        if (!input.mcp[name]) {
-          input.mcp[name] = server;
-        }
+    }
+    // Add user-configured MCP servers
+    for (const [name, server] of Object.entries(config.mcpServers)) {
+      if (!mcp[name]) {
+        mcp[name] = server as unknown as Record<string, unknown>;
       }
     }
   };

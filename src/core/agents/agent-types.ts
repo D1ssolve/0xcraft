@@ -49,6 +49,7 @@ export type TaskPermissions =
  * Harness adapters override this with provider-specific resolution.
  */
 export function resolveModel(agent: AgentDefinition, overrides?: Record<string, string>): string {
-  if (overrides?.[agent.id]) return overrides[agent.id];
+  const override = overrides?.[agent.id];
+  if (override !== undefined) return override;
   return agent.model;
 }
