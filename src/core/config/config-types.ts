@@ -1,82 +1,233 @@
 /**
- * 0xcraft configuration schema — harness-agnostic.
+ * 0xcraft configuration shapes — canonical nested form (T-12.8).
  *
- * The OpenCode adapter maps this to the plugin's JSONC config system.
- * Other adapters (Codex, Claude Code) would map to their own config formats.
+ * The legacy flat shape (`disabledHooks`, `customAgentPaths`,
+ * `codexHookRuntime`, …) has been removed. There is one shape now:
+ * `ZeroxCraftConfig`. Disabling features is done via id lists in
+ * `disabled.*`; per-platform settings live under `platforms.*`.
  */
+
+import type { PermissionSpec } from "../permission/permission-spec";
+import type { McpServerConfigEntry } from "../mcp/mcp-types";
+
+/* ---------------------------------------------------------------- */
+/*  Platform id                                                       */
+/* ---------------------------------------------------------------- */
+
+// Re-exported from the canonical `core/platform` module to keep one
+// source of truth across `core/config`, `core/hooks`, and
+// `core/diagnostics`. Existing imports of `PlatformId`/`PLATFORM_IDS`/
+// `isPlatformId` from `core/config` stay working unchanged.
+export { PLATFORM_IDS, type PlatformId, isPlatformId } from "../platform/platform-id";
+import { PLATFORM_IDS } from "../platform/platform-id";
+
+/* ---------------------------------------------------------------- */
+/*  Per-platform sub-config                                           */
+/* ---------------------------------------------------------------- */
+
+/**
+ * Per-platform settings. Closed-shape — each platform owns its keys.
+ * `opencode` currently has no platform-specific knobs.
+ */
+export interface OpencodePlatformConfig {
+  // reserved for future opencode-only settings
+}
+export interface ClaudeCodePlatformConfig {
+  /** Runtime for emitted hook scripts. */
+  hookRuntime?: "bun" | "node";
+}
+export interface CodexAgentExtension {
+  /** Codex `model_reasoning_effort`. */
+  model_reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  /** Free-text alternate names the user can address the agent by. */
+  nickname_candidates?: string[];
+  /** Forwarded verbatim into the agent TOML `skills.config` table. */
+  skills?: {
+    config?: Record<string, unknown>;
+  };
+}
+
+export interface CodexMcpExtension {
+  /** stdio `cwd` override. */
+  cwd?: string;
+  /** Names of host env vars to forward (`env_vars`). */
+  env_vars?: string[];
+  /** Env var holding the bearer token (http only). */
+  bearer_token_env_var?: string;
+  /** Header → env-var map for dynamic headers (http only). */
+  env_http_headers?: Record<string, string>;
+}
+
+export interface CodexPermissionProfile {
+  sandbox_mode?: "read-only" | "workspace-write" | "danger-full-access";
+  /** `on-failure` intentionally excluded — deprecated per research. */
+  approval_policy?: "never" | "on-request" | "untrusted";
+}
+
+export interface CodexPlatformConfig {
+  /** Hook script runtime selection (existing if present). */
+  hookRuntime?: "bun" | "node";
+  /** Output dir for emitted skills (relative to project root). */
+  skillsDir?: string;
+  /** Emit .codex-plugin/ filesystem plugin bundle. */
+  emitPlugin?: boolean;
+  /** Emit .agents/plugins/marketplace.json marketplace stub (requires emitPlugin). */
+  emitMarketplace?: boolean;
+  /** Emit apps section in plugin.json + .codex-plugin/.app.json (beta). */
+  emitApps?: boolean;
+  /** Use beta [permissions.<name>] profiles instead of sandbox_mode (NOT composable with sandbox_mode). */
+  permissionsBeta?: boolean;
+  /** Per-agent Codex-only extension fields (agentId → extension). */
+  agents?: Record<string, CodexAgentExtension>;
+  /** Per-MCP-server Codex-only extension fields (serverId → extension). */
+  mcpExtensions?: Record<string, CodexMcpExtension>;
+  /** Beta `[permissions.<name>]` profiles. Only emitted when `permissionsBeta === true`. */
+  permissionProfiles?: Record<string, CodexPermissionProfile>;
+}
+
+export interface ZeroxCraftConfigPlatforms {
+  opencode?: OpencodePlatformConfig;
+  "claude-code"?: ClaudeCodePlatformConfig;
+  codex?: CodexPlatformConfig;
+}
+
+export type PlatformsConfig = ZeroxCraftConfigPlatforms;
+
+/* ---------------------------------------------------------------- */
+/*  Canonical config shape                                            */
+/* ---------------------------------------------------------------- */
+
 export interface ZeroxCraftConfig {
-  /** Which agents to enable (default: all) */
-  enabledAgents?: string[];
-  /** Which agents to disable */
-  disabledAgents?: string[];
-  /** Which skills to enable (default: all) */
-  enabledSkills?: string[];
-  /** Which skills to disable */
-  disabledSkills?: string[];
-  /** Which hooks to disable */
-  disabledHooks?: string[];
-  /** Model overrides per agent */
-  modelOverrides?: Record<string, string>;
-  /** Temperature overrides per agent */
-  temperatureOverrides?: Record<string, number>;
-  /** MCP servers to auto-configure */
-  mcpServers?: Record<string, McpServerConfig>;
-  /** Whether to inject AGENTS.md guard on session start */
-  agentsGuardEnabled?: boolean;
-  /** Whether to inject caveman bootstrap on session start */
-  cavemanBootstrapEnabled?: boolean;
-  /** Whether to inject git-worktree context on session start */
-  gitWorktreeBootstrapEnabled?: boolean;
-  /** Custom skill directories to scan (in addition to built-in skills) */
-  customSkillPaths?: string[];
-  /** Custom agent directories to scan */
-  customAgentPaths?: string[];
+  /** Disabled-by-id buckets. */
+  disabled: {
+    hooks: string[];
+    skills: string[];
+    agents: string[];
+    commands: string[];
+    mcp: string[];
+  };
+  /** Whitelist buckets (empty array = all enabled). */
+  enabled: {
+    skills: string[];
+    agents: string[];
+    commands: string[];
+  };
+  /** Custom directories scanned in addition to builtins. */
+  customPaths: {
+    agents: string[];
+    skills: string[];
+    commands: string[];
+  };
+  /** Per-agent model overrides applied across all platforms. */
+  modelOverrides: Record<string, string>;
+  /** Per-platform per-agent model overrides (override `modelOverrides`). */
+  platformModelOverrides?: {
+    opencode?: Record<string, string>;
+    "claude-code"?: Record<string, string>;
+    codex?: Record<string, string>;
+  };
+  /** Per-platform settings. */
+  platforms: ZeroxCraftConfigPlatforms;
+  /** User-supplied MCP servers, keyed by id. */
+  mcpServers: Record<string, McpServerConfigEntry>;
+  /** Optional permission overrides (canonical `PermissionSpec`). */
+  permissions?: PermissionSpec;
 }
 
-export interface McpServerConfig {
-  type: "local" | "remote";
-  command?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-}
-
-/** Default configuration values */
-export const defaultConfig: Required<ZeroxCraftConfig> = {
-  enabledAgents: [],
-  disabledAgents: [],
-  enabledSkills: [],
-  disabledSkills: [],
-  disabledHooks: [],
+/** Canonical defaults. */
+export const defaultConfig: ZeroxCraftConfig = {
+  disabled: { hooks: [], skills: [], agents: [], commands: [], mcp: [] },
+  enabled: { skills: [], agents: [], commands: [] },
+  customPaths: { agents: [], skills: [], commands: [] },
   modelOverrides: {},
-  temperatureOverrides: {},
+  platforms: {
+    "claude-code": { hookRuntime: "bun" },
+    codex: { hookRuntime: "bun" },
+  },
   mcpServers: {},
-  agentsGuardEnabled: true,
-  cavemanBootstrapEnabled: true,
-  // Disabled until skills/git-worktree/SKILL.md is created
-  gitWorktreeBootstrapEnabled: false,
-  customSkillPaths: [],
-  customAgentPaths: [],
+};
+
+/* ---------------------------------------------------------------- */
+/*  mergeConfig — nested-only                                         */
+/* ---------------------------------------------------------------- */
+
+function unionDedup(a: readonly string[], b: readonly string[] | undefined): string[] {
+  return [...new Set([...a, ...(b ?? [])])];
+}
+
+/**
+ * User-supplied partial config. Sub-shapes under `disabled`, `enabled`,
+ * `customPaths`, `platforms`, `platformModelOverrides` are individually
+ * partial so callers can pass `{ disabled: { hooks: ["x"] } }` without
+ * spelling every bucket.
+ */
+export type PartialZeroxCraftConfig = {
+  disabled?: Partial<ZeroxCraftConfig["disabled"]>;
+  enabled?: Partial<ZeroxCraftConfig["enabled"]>;
+  customPaths?: Partial<ZeroxCraftConfig["customPaths"]>;
+  modelOverrides?: Record<string, string>;
+  platformModelOverrides?: ZeroxCraftConfig["platformModelOverrides"];
+  platforms?: PlatformsConfig;
+  mcpServers?: Record<string, McpServerConfigEntry>;
+  permissions?: PermissionSpec;
 };
 
 /**
- * Merge user config onto defaults.
- * Arrays are unioned (not replaced). Objects are deep-merged.
+ * Merge a user-supplied partial nested config onto `defaultConfig`.
+ *
+ * - String arrays are unioned + deduped.
+ * - Records are shallow-merged (user wins per key).
+ * - Sub-records under `disabled`, `enabled`, `customPaths`, `platforms`,
+ *   `platformModelOverrides` are merged per-key.
  */
-export function mergeConfig(user: Partial<ZeroxCraftConfig>): Required<ZeroxCraftConfig> {
-  return {
-    enabledAgents: [...new Set([...defaultConfig.enabledAgents, ...(user.enabledAgents ?? [])])],
-    disabledAgents: [...new Set([...defaultConfig.disabledAgents, ...(user.disabledAgents ?? [])])],
-    enabledSkills: [...new Set([...defaultConfig.enabledSkills, ...(user.enabledSkills ?? [])])],
-    disabledSkills: [...new Set([...defaultConfig.disabledSkills, ...(user.disabledSkills ?? [])])],
-    disabledHooks: [...new Set([...defaultConfig.disabledHooks, ...(user.disabledHooks ?? [])])],
+export function mergeConfig(user: PartialZeroxCraftConfig): ZeroxCraftConfig {
+  const merged: ZeroxCraftConfig = {
+    disabled: {
+      hooks: unionDedup(defaultConfig.disabled.hooks, user.disabled?.hooks),
+      skills: unionDedup(defaultConfig.disabled.skills, user.disabled?.skills),
+      agents: unionDedup(defaultConfig.disabled.agents, user.disabled?.agents),
+      commands: unionDedup(defaultConfig.disabled.commands, user.disabled?.commands),
+      mcp: unionDedup(defaultConfig.disabled.mcp, user.disabled?.mcp),
+    },
+    enabled: {
+      skills: unionDedup(defaultConfig.enabled.skills, user.enabled?.skills),
+      agents: unionDedup(defaultConfig.enabled.agents, user.enabled?.agents),
+      commands: unionDedup(defaultConfig.enabled.commands, user.enabled?.commands),
+    },
+    customPaths: {
+      agents: unionDedup(defaultConfig.customPaths.agents, user.customPaths?.agents),
+      skills: unionDedup(defaultConfig.customPaths.skills, user.customPaths?.skills),
+      commands: unionDedup(defaultConfig.customPaths.commands, user.customPaths?.commands),
+    },
     modelOverrides: { ...defaultConfig.modelOverrides, ...user.modelOverrides },
-    temperatureOverrides: { ...defaultConfig.temperatureOverrides, ...user.temperatureOverrides },
+    platforms: mergePlatforms(defaultConfig.platforms, user.platforms),
     mcpServers: { ...defaultConfig.mcpServers, ...user.mcpServers },
-    agentsGuardEnabled: user.agentsGuardEnabled ?? defaultConfig.agentsGuardEnabled,
-    cavemanBootstrapEnabled: user.cavemanBootstrapEnabled ?? defaultConfig.cavemanBootstrapEnabled,
-    gitWorktreeBootstrapEnabled: user.gitWorktreeBootstrapEnabled ?? defaultConfig.gitWorktreeBootstrapEnabled,
-    customSkillPaths: [...defaultConfig.customSkillPaths, ...(user.customSkillPaths ?? [])],
-    customAgentPaths: [...defaultConfig.customAgentPaths, ...(user.customAgentPaths ?? [])],
   };
+
+  if (user.platformModelOverrides !== undefined) {
+    merged.platformModelOverrides = { ...user.platformModelOverrides };
+  }
+
+  if (user.permissions !== undefined) {
+    merged.permissions = user.permissions;
+  }
+
+  return merged;
+}
+
+function mergePlatforms(
+  base: PlatformsConfig,
+  user: PlatformsConfig | undefined,
+): PlatformsConfig {
+  if (!user) return { ...base };
+  const out: PlatformsConfig = { ...base };
+  for (const id of PLATFORM_IDS) {
+    const b = base[id];
+    const u = user[id];
+    if (b === undefined && u === undefined) continue;
+    // Each platform sub-shape is a flat record of optional scalars;
+    // shallow merge with user-wins semantics.
+    out[id] = { ...(b ?? {}), ...(u ?? {}) } as PlatformsConfig[typeof id];
+  }
+  return out;
 }

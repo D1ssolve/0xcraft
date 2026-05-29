@@ -4,16 +4,6 @@ export interface ClaudeValidationDiagnostic {
   severity: ClaudeValidationSeverity;
   code: string;
   message: string;
-  version?: string;
-}
-
-export type ClaudePluginValidateCapability = "supported" | "unsupported" | "unknown";
-
-export interface ClaudeCodeValidationInfo {
-  version?: string;
-  capabilities?: {
-    pluginValidate?: ClaudePluginValidateCapability;
-  };
 }
 
 export interface ClaudeProcessResult {
@@ -28,8 +18,6 @@ export interface ClaudePluginValidateOptions {
   pluginDir: string;
   strict?: boolean;
   failOnMissingClaude?: boolean;
-  failOnUnsupportedCapability?: boolean;
-  claudeCode?: ClaudeCodeValidationInfo;
   runner?: ClaudeProcessRunner;
 }
 
@@ -57,21 +45,6 @@ const SUMMARY_LIMIT = 1_024;
 export async function runClaudePluginValidate(options: ClaudePluginValidateOptions): Promise<ClaudePluginValidateResult> {
   const args = buildValidateArgs(options.pluginDir, options.strict === true);
   const command = { command: "claude" as const, args };
-  const diagnostics = getCapabilityDiagnostics(
-    options.claudeCode,
-    options.strict === true || options.failOnUnsupportedCapability === true,
-  );
-
-  const blockingDiagnostic = diagnostics.find((diagnostic) => diagnostic.severity === "error");
-  if (blockingDiagnostic) {
-    return {
-      ok: false,
-      status: "failed",
-      command,
-      diagnostics,
-    };
-  }
-
   const runner = options.runner ?? bunSpawnRunner;
 
   try {
@@ -80,9 +53,9 @@ export async function runClaudePluginValidate(options: ClaudePluginValidateOptio
     if (processResult.exitCode === 0) {
       return {
         ok: true,
-        status: diagnostics.length > 0 ? "warning" : "passed",
+        status: "passed",
         command,
-        diagnostics,
+        diagnostics: [],
       };
     }
 
@@ -91,7 +64,6 @@ export async function runClaudePluginValidate(options: ClaudePluginValidateOptio
       status: "failed",
       command,
       diagnostics: [
-        ...diagnostics,
         {
           severity: "error",
           code: "claude.validate.non_zero_exit",
@@ -109,7 +81,6 @@ export async function runClaudePluginValidate(options: ClaudePluginValidateOptio
         status: severity === "warning" ? "warning" : "failed",
         command,
         diagnostics: [
-          ...diagnostics,
           {
             severity,
             code: "claude.validate.binary_missing",
@@ -124,7 +95,6 @@ export async function runClaudePluginValidate(options: ClaudePluginValidateOptio
       status: "failed",
       command,
       diagnostics: [
-        ...diagnostics,
         {
           severity: "error",
           code: "claude.validate.runner_failed",
@@ -141,35 +111,6 @@ function buildValidateArgs(pluginDir: string, strict: boolean): string[] {
     args.push("--strict");
   }
   return args;
-}
-
-function getCapabilityDiagnostics(
-  claudeCode: ClaudeCodeValidationInfo | undefined,
-  hardFail: boolean,
-): ClaudeValidationDiagnostic[] {
-  const capability = claudeCode?.capabilities?.pluginValidate;
-  if (capability === undefined || capability === "supported") {
-    return [];
-  }
-
-  const severity = hardFail ? "error" : "warning";
-  const version = claudeCode?.version;
-
-  if (capability === "unsupported") {
-    return [{
-      severity,
-      code: "claude.validate.capability_unsupported",
-      message: "Claude Code capability `claude plugin validate` is unsupported by the detected CLI.",
-      version,
-    }];
-  }
-
-  return [{
-    severity,
-    code: "claude.validate.capability_unknown",
-    message: "Claude Code capability `claude plugin validate` could not be confirmed.",
-    version,
-  }];
 }
 
 async function bunSpawnRunner(command: string, args: string[]): Promise<ClaudeProcessResult> {

@@ -10,7 +10,26 @@ export interface ClaudeCodeFilesystemWriter {
   writeJson(relativePath: string, value: unknown): string[];
   writeMarkdown(relativePath: string, content: string): string[];
   overwriteMarkdown(relativePath: string, content: string): string[];
-  copyDirectory(sourceDirectory: string, relativeDestination: string): string[];
+  /**
+   * Copy a directory tree.
+   *
+   * `exclude` (optional) — predicate called with each source-relative
+   * POSIX path. Returning `true` skips that file. Callers use this to
+   * avoid the wasteful copy-then-overwrite pattern for files they
+   * intend to rewrite immediately afterwards (e.g. `SKILL.md`).
+   */
+  copyDirectory(
+    sourceDirectory: string,
+    relativeDestination: string,
+    exclude?: (sourceRelativePosixPath: string) => boolean,
+  ): string[];
+  /**
+   * Write an arbitrary file relative to the output root with an optional
+   * POSIX file mode (best-effort `chmod` on platforms that support it).
+   * Enforces the same sandbox-root containment guard as the other write
+   * methods.
+   */
+  writeFile(relativePath: string, content: string | Buffer, mode?: number): string[];
 }
 
 export function createClaudeCodeFilesystemWriter(options: ClaudeCodeFilesystemWriterOptions): ClaudeCodeFilesystemWriter {
@@ -43,16 +62,31 @@ export function createClaudeCodeFilesystemWriter(options: ClaudeCodeFilesystemWr
       return [toPosixRelativePath(outputRoot, destination)];
     },
 
-    copyDirectory(sourceDirectory, relativeDestination) {
+    copyDirectory(sourceDirectory, relativeDestination, exclude) {
       preflightOutputRoot(outputRoot, force, outputRootPreflighted);
       outputRootPreflighted = true;
       const sourceRoot = path.resolve(sourceDirectory);
       const destinationRoot = resolveInsideOutputRoot(outputRoot, relativeDestination);
       const emitted: string[] = [];
 
-      copyDirectoryContents(sourceRoot, destinationRoot, outputRoot, force, emitted);
+      copyDirectoryContents(sourceRoot, sourceRoot, destinationRoot, outputRoot, force, emitted, exclude);
 
       return emitted.sort(comparePaths);
+    },
+
+    writeFile(relativePath, content, mode) {
+      preflightOutputRoot(outputRoot, force, outputRootPreflighted);
+      outputRootPreflighted = true;
+      const destination = resolveInsideOutputRoot(outputRoot, relativePath);
+      writeFile(destination, content, force);
+      if (mode !== undefined) {
+        try {
+          fs.chmodSync(destination, mode);
+        } catch {
+          // best-effort; some platforms (e.g. Windows) ignore chmod.
+        }
+      }
+      return [toPosixRelativePath(outputRoot, destination)];
     },
   };
 }
@@ -82,11 +116,13 @@ function writeFile(destination: string, content: string | Buffer, force: boolean
 }
 
 function copyDirectoryContents(
+  sourceRoot: string,
   sourceDirectory: string,
   destinationDirectory: string,
   outputRoot: string,
   force: boolean,
   emitted: string[],
+  exclude: ((sourceRelativePosixPath: string) => boolean) | undefined,
 ): void {
   const sourceStat = fs.lstatSync(sourceDirectory);
   if (sourceStat.isSymbolicLink()) {
@@ -109,12 +145,17 @@ function copyDirectoryContents(
     }
 
     if (stat.isDirectory()) {
-      copyDirectoryContents(sourcePath, destinationPath, outputRoot, force, emitted);
+      copyDirectoryContents(sourceRoot, sourcePath, destinationPath, outputRoot, force, emitted, exclude);
       continue;
     }
 
     if (!stat.isFile()) {
       throw new Error(`Refusing to copy unsupported filesystem entry: ${sourcePath}`);
+    }
+
+    if (exclude !== undefined) {
+      const rel = path.relative(sourceRoot, sourcePath).split(path.sep).join(path.posix.sep);
+      if (exclude(rel)) continue;
     }
 
     writeFile(destinationPath, fs.readFileSync(sourcePath), force);

@@ -6,24 +6,7 @@
  *
  * The OpenCode adapter registers these via the plugin `config` hook.
  */
-export interface McpRegistryEntry {
-  /** Unique name for the MCP server */
-  name: string;
-  /** "local" (stdio) or "remote" (HTTP) */
-  type: "local" | "remote";
-  /** For local: command + args */
-  command?: string[];
-  /** For remote: URL */
-  url?: string;
-  /** Environment variables */
-  env?: Record<string, string>;
-  /** HTTP headers for remote servers */
-  headers?: Record<string, string>;
-  /** Whether this MCP is enabled by default */
-  enabledByDefault: boolean;
-  /** Description for config UI */
-  description: string;
-}
+import type { McpServerSpec } from "./mcp-types";
 
 /**
  * Built-in MCP servers.
@@ -32,41 +15,58 @@ export interface McpRegistryEntry {
  * in the OpenCode config. Skill-embedded MCPs are handled separately
  * by the skill registry.
  */
-export const builtinMcpServers: McpRegistryEntry[] = [
+export const builtinMcpServers: McpServerSpec[] = [
   {
-    name: "sequential-thinking",
-    type: "local",
+    id: "sequential-thinking",
+    transport: "stdio",
     command: ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"],
     enabledByDefault: true,
-    description: "Sequential thinking MCP server for structured problem-solving",
+    description:
+      "Sequential thinking MCP server for structured problem-solving",
   },
   {
-    name: "context7",
-    type: "remote",
+    id: "context7",
+    transport: "http",
     url: "https://mcp.context7.com/mcp",
     enabledByDefault: true,
     description: "Up-to-date library and framework documentation via Context7",
   },
   {
-    name: "mempalace",
-    type: "local",
-    command: ["uvx", "--from", "mempalace", "python", "-m", "mempalace.mcp_server"],
+    id: "mempalace",
+    transport: "stdio",
+    command: [
+      "uvx",
+      "--from",
+      "mempalace",
+      "python",
+      "-m",
+      "mempalace.mcp_server",
+    ],
     enabledByDefault: true,
     description: "Memory palace system for persistent knowledge management",
   },
   {
-    name: "notebooklm-mcp",
-    type: "local",
+    id: "notebooklm-mcp",
+    transport: "stdio",
     command: ["uvx", "--from", "notebooklm-mcp-cli", "notebooklm-mcp"],
     enabledByDefault: false,
-    description: "Google NotebookLM integration for research and content generation",
+    description:
+      "Google NotebookLM integration for research and content generation",
+  },
+  {
+    id: "fetch-mcp",
+    transport: "stdio",
+    command: ["uvx", "mcp-server-fetch"],
+    enabledByDefault: false,
+    description:
+      "A Model Context Protocol server that provides web content fetching capabilities. This server enables LLMs to retrieve and process content from web pages, converting HTML to markdown for easier consumption.",
   },
 ];
 
-export function getMcpByName(name: string): McpRegistryEntry | undefined {
-  return builtinMcpServers.find((m) => m.name === name);
+export function getMcpByName(name: string): McpServerSpec | undefined {
+  return builtinMcpServers.find((m) => m.id === name);
 }
 
-export function getEnabledMcpServers(disabled: string[] = []): McpRegistryEntry[] {
-  return builtinMcpServers.filter((m) => m.enabledByDefault && !disabled.includes(m.name));
+export function getEnabledMcpServers(disabled: string[] = []): McpServerSpec[] {
+  return builtinMcpServers.filter((m) => m.enabledByDefault && !disabled.includes(m.id));
 }

@@ -35,11 +35,18 @@ export const claudeCodeAgentFrontmatterSchema = z
     name: z.string().min(1),
     description: z.string().min(1),
     model: z.string().min(1).optional(),
+    // CLAUDE_CODE_MATRIX.agentColor === "native" — emitted directly from AgentSpec.color.
+    color: z.string().min(1).optional(),
     effort: z.enum(["low", "medium", "high"]).or(z.string().min(1)).optional(),
     maxTurns: z.number().int().positive().optional(),
     tools: stringArraySchema.optional(),
     disallowedTools: stringArraySchema.optional(),
     skills: stringArraySchema.optional(),
+    // CLAUDE_CODE_MATRIX.perAgentMcpScoping === "native". Plumbing only:
+    // AgentSpec does not yet expose `mcpServers`; the mapper reads a
+    // forward-compatible `agent.mcpServers?: string[]` via a safe cast. When
+    // a future core schema lands, replace the cast with a typed read.
+    mcpServers: stringArraySchema.optional(),
     memory: z.boolean().optional(),
     background: z.boolean().optional(),
     isolation: z.boolean().optional(),
@@ -123,8 +130,8 @@ export type ClaudeCodeHookHandler = z.infer<typeof claudeCodeHookHandlerSchema>;
 
 export const claudeCodeHookMatcherGroupSchema = z
   .object({
-    matcher: z.record(z.string(), z.unknown()).optional(),
-    handlers: z.array(claudeCodeHookHandlerSchema).min(1),
+    matcher: z.string().min(1).optional(),
+    hooks: z.array(claudeCodeHookHandlerSchema).min(1),
   })
   .strict();
 

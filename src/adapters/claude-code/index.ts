@@ -1,42 +1,45 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { builtinAgents, type AgentDefinition } from "../../core/agents";
-import { loadConfig, mergeConfig, validateConfig, type ZeroxCraftConfig } from "../../core/config";
-import { builtinHooks, type HookDefinition } from "../../core/hooks";
-import { builtinMcpServers, type McpRegistryEntry } from "../../core/mcp";
+import { parseFrontmatter } from "../_shared/frontmatter";
+import { resolvePackageRoot as sharedResolvePackageRoot } from "../_shared/package-root";
+import { builtinAgents, type AgentSpec } from "../../core/agents";
+import { loadConfig, mergeConfig, type ZeroxCraftConfig, type PartialZeroxCraftConfig } from "../../core/config";
+import { builtinHooks, type HookSpec } from "../../core/hooks";
+import { builtinMcpServers, type McpServerSpec } from "../../core/mcp";
 import { builtinSkills, type SkillDefinition } from "../../core/skills";
 import { createClaudeCodeFilesystemWriter, type ClaudeCodeFilesystemWriter } from "./filesystem";
+import { createInMemoryClaudeCodeWriter, type InMemoryFile } from "./in-memory-writer";
 import {
   generateClaudeCodeAgents,
   type GenerateClaudeCodeAgentsOptions,
   type GenerateClaudeCodeAgentsResult,
-} from "./generators/agents";
+} from "./emitters/agents";
 import {
   generateClaudeCodeHooks,
   type GenerateClaudeCodeHooksOptions,
   type GenerateClaudeCodeHooksResult,
-} from "./generators/hooks";
+} from "./emitters/hooks";
 import {
   generateClaudeCodeManifest,
   type GenerateClaudeCodeManifestOptions,
   type GenerateClaudeCodeManifestResult,
-} from "./generators/manifest";
+} from "./emitters/manifest";
 import {
   generateClaudeCodeMcp,
   type ClaudeCodeMcpGeneratorOptions,
   type ClaudeCodeMcpGeneratorResult,
-} from "./generators/mcp";
+} from "./emitters/mcp";
 import {
   generateClaudeCodeSettings,
   type GenerateClaudeCodeSettingsOptions,
   type GenerateClaudeCodeSettingsResult,
-} from "./generators/settings";
+} from "./emitters/settings";
 import {
   generateClaudeCodeSkills,
   type ClaudeCodeSkillsGeneratorOptions,
   type ClaudeCodeSkillsGeneratorResult,
-} from "./generators/skills";
+} from "./emitters/skills";
 import {
   claudeCodeAgentFrontmatterSchema,
   claudeCodeHooksJsonSchema,
@@ -47,11 +50,15 @@ import {
 } from "./types/claude-code-types";
 import {
   runClaudePluginValidate,
-  type ClaudeCodeValidationInfo,
   type ClaudePluginValidateResult,
   type ClaudeProcessRunner,
   type ClaudeValidationDiagnostic,
 } from "./validate";
+import { DiagnosticCollector } from "../_shared/diagnostic-collector";
+import {
+  routeClaudeCodeHooks,
+  emitClaudeCodeHookMatrixSweep,
+} from "./mappers/hooks";
 
 export type ClaudeCodeGeneratorDiagnosticSeverity = "warning" | "error";
 
@@ -60,16 +67,6 @@ export interface ClaudeCodeGeneratorDiagnostic {
   code: string;
   message: string;
   details?: Record<string, unknown>;
-}
-
-export interface ClaudeCodeCapabilityTarget {
-  version?: string;
-  capabilities?: {
-    pluginDir?: "supported" | "unsupported" | "unknown";
-    reloadPlugins?: "supported" | "unsupported" | "unknown";
-    pluginValidate?: "supported" | "unsupported" | "unknown";
-  };
-  supportsDisplayName?: boolean;
 }
 
 export interface ClaudeCodeSelectedAssets {
@@ -97,7 +94,6 @@ export interface GenerateClaudeCodePluginResult {
   outputPath: string;
   emittedFiles: string[];
   diagnostics: ClaudeCodeGeneratorDiagnostic[];
-  compatibilityWarnings: ClaudeCodeGeneratorDiagnostic[];
   localValidation: ClaudeCodeLocalValidationResult;
   externalValidation?: ClaudePluginValidateResult;
   metadata: ClaudeCodePluginResultMetadata;
@@ -119,20 +115,19 @@ export interface GenerateClaudeCodePluginOptions {
   projectRoot?: string;
   outputPath?: string;
   force?: boolean;
-  config?: Partial<ZeroxCraftConfig>;
+  config?: PartialZeroxCraftConfig;
   settings?: Record<string, unknown>;
   selectedAssets?: ClaudeCodeSelectedAssets;
-  compatibility?: ClaudeCodeCapabilityTarget;
   validateExternal?: boolean;
   strictExternalValidation?: boolean;
   externalValidationRunner?: ClaudeProcessRunner;
   homeDir?: string;
-  builtInAgents?: AgentDefinition[];
-  customAgents?: AgentDefinition[];
+  builtInAgents?: AgentSpec[];
+  customAgents?: AgentSpec[];
   builtInSkills?: SkillDefinition[];
   customSkills?: SkillDefinition[];
-  builtInHooks?: HookDefinition[];
-  builtInMcpServers?: McpRegistryEntry[];
+  builtInHooks?: HookSpec[];
+  builtInMcpServers?: McpServerSpec[];
   dependencies?: ClaudeCodePluginGeneratorDependencies;
 }
 
@@ -145,83 +140,53 @@ const DEFAULT_SELECTED_ASSETS = {
 } satisfies Required<ClaudeCodeSelectedAssets>;
 
 export async function generateClaudeCodePlugin(options: GenerateClaudeCodePluginOptions = {}): Promise<GenerateClaudeCodePluginResult> {
-  const packageRoot = resolvePackageRoot(options.packageRoot);
-  const projectRoot = path.resolve(options.projectRoot ?? process.cwd());
+  // T-12.x: single source of orchestration.
+  //
+  // `generateClaudeCodePlugin` is the on-disk wrapper around
+  // `buildClaudeCodeFiles`. The builder runs every generator against an
+  // in-memory writer and returns the captured files + diagnostics; this
+  // function then preflights the output directory, persists each file
+  // through `createClaudeCodeFilesystemWriter`, runs optional external
+  // validation, and assembles the legacy result shape.
+  //
+  // This removes the prior duplicate orchestration path that called all
+  // generators a second time against the on-disk writer, and matches
+  // the cleaner Codex pattern (`buildCodexFiles` ↔ `generateCodexPlugin`).
+  const packageRoot = options.packageRoot
+    ? path.resolve(options.packageRoot)
+    : sharedResolvePackageRoot({ startDir: path.dirname(fileURLToPath(import.meta.url)) });
   const outputPath = path.resolve(options.outputPath ?? path.join(packageRoot, "dist", "claude-code-plugin", "0xcraft"));
-  const selectedAssets = { ...DEFAULT_SELECTED_ASSETS, ...(options.selectedAssets ?? {}) };
-  const dependencies = options.dependencies ?? {};
-  const diagnostics: ClaudeCodeGeneratorDiagnostic[] = [];
-  const emittedFiles: string[] = [];
-  const config = resolveConfig(projectRoot, options, diagnostics);
-  const compatibilityWarnings = getCompatibilityWarnings(options.compatibility);
-  diagnostics.push(...compatibilityWarnings);
+
+  const built = await buildClaudeCodeFiles({
+    packageRoot: options.packageRoot,
+    projectRoot: options.projectRoot,
+    force: options.force,
+    config: options.config,
+    settings: options.settings,
+    selectedAssets: options.selectedAssets,
+    homeDir: options.homeDir,
+    builtInAgents: options.builtInAgents,
+    customAgents: options.customAgents,
+    builtInSkills: options.builtInSkills,
+    customSkills: options.customSkills,
+    builtInHooks: options.builtInHooks,
+    builtInMcpServers: options.builtInMcpServers,
+    dependencies: options.dependencies,
+  });
+
+  const diagnostics: ClaudeCodeGeneratorDiagnostic[] = [...built.diagnostics];
   const writer = createClaudeCodeFilesystemWriter({ outputRoot: outputPath, force: options.force });
 
-  const agentsResult = selectedAssets.agents
-    ? (dependencies.generateAgents ?? generateClaudeCodeAgents)({
-      packageRoot,
-      writer,
-      builtInAgents: options.builtInAgents ?? builtinAgents,
-      customAgents: options.customAgents,
-      config,
-    })
-    : emptyResult();
-  collectResult(agentsResult, emittedFiles, diagnostics);
+  // Persist every captured file. `writer.writeFile` enforces sandbox
+  // containment, runs the preflight (empty-dir / force) check, and
+  // best-effort chmods POSIX modes (e.g. hook shim scripts). Any write
+  // failure (preflight rejection, EACCES, sandbox escape) is fatal and
+  // propagated — matching the prior on-disk orchestration's behaviour.
+  for (const file of built.files) {
+    writer.writeFile(file.path, file.content, file.mode);
+  }
 
-  const skillsResult = selectedAssets.skills
-    ? (dependencies.generateSkills ?? generateClaudeCodeSkills)({
-      skills: selectSkills([...(options.builtInSkills ?? builtinSkills), ...(options.customSkills ?? [])], config),
-      disabledSkillIds: config.disabledSkills,
-      packageRoot,
-      writer,
-    })
-    : { emittedFiles: [], diagnostics: [], skills: [], mcpServers: [] } satisfies ClaudeCodeSkillsGeneratorResult;
-  collectResult(skillsResult, emittedFiles, diagnostics);
-
-  const hooksResult = selectedAssets.hooks
-    ? (dependencies.generateHooks ?? generateClaudeCodeHooks)({
-      writer,
-      hooks: options.builtInHooks ?? builtinHooks,
-      disabledHooks: config.disabledHooks,
-    })
-    : emptyResult();
-  collectResult(hooksResult, emittedFiles, diagnostics);
-
-  const mcpResult = selectedAssets.mcpServers
-    ? (dependencies.generateMcp ?? generateClaudeCodeMcp)({
-      writer,
-      builtinServers: options.builtInMcpServers ?? builtinMcpServers,
-      userServers: config.mcpServers,
-      skillServers: [],
-    })
-    : emptyResult();
-  collectResult(mcpResult, emittedFiles, diagnostics);
-
-  const settingsResult = selectedAssets.settings
-    ? (dependencies.generateSettings ?? generateClaudeCodeSettings)({ writer, settings: options.settings })
-    : { emittedFiles: [] } satisfies GenerateClaudeCodeSettingsResult;
-  collectResult(settingsResult, emittedFiles, diagnostics);
-
-  const manifestResult = (dependencies.generateManifest ?? generateManifestWithWriter)({
-    outputRoot: outputPath,
-    force: options.force,
-    writer,
-    packageMetadata: readPackageMetadata(packageRoot, diagnostics),
-    emittedComponents: {
-      agents: agentsResult.emittedFiles.length > 0,
-      skills: skillsResult.emittedFiles.length > 0,
-      hooks: hooksResult.emittedFiles.length > 0,
-      mcpServers: mcpResult.emittedFiles.length > 0,
-    },
-    compatibility: {
-      claudeCodeVersion: options.compatibility?.version,
-      supportsDisplayName: options.compatibility?.supportsDisplayName,
-    },
-  });
-  collectResult(manifestResult, emittedFiles, diagnostics);
-
-  const localValidation = validateGeneratedPlugin(outputPath, uniqueSorted(emittedFiles));
-  diagnostics.push(...localValidation.diagnostics);
+  const localValidation = built.localValidation;
 
   let externalValidation: ClaudePluginValidateResult | undefined;
   if (options.validateExternal === true) {
@@ -229,8 +194,6 @@ export async function generateClaudeCodePlugin(options: GenerateClaudeCodePlugin
       pluginDir: outputPath,
       strict: options.strictExternalValidation,
       failOnMissingClaude: true,
-      failOnUnsupportedCapability: options.strictExternalValidation,
-      claudeCode: toValidationInfo(options.compatibility),
       runner: options.externalValidationRunner,
     });
     diagnostics.push(...externalValidation.diagnostics.map(fromValidationDiagnostic));
@@ -239,9 +202,8 @@ export async function generateClaudeCodePlugin(options: GenerateClaudeCodePlugin
   return {
     ok: localValidation.ok && !hasError(diagnostics) && (externalValidation?.ok ?? true),
     outputPath,
-    emittedFiles: uniqueSorted(emittedFiles),
+    emittedFiles: uniqueSorted(built.emittedFiles),
     diagnostics,
-    compatibilityWarnings,
     localValidation,
     externalValidation,
     metadata: {
@@ -253,54 +215,39 @@ export async function generateClaudeCodePlugin(options: GenerateClaudeCodePlugin
   };
 }
 
-function resolvePackageRoot(explicitPackageRoot: string | undefined): string {
-  if (explicitPackageRoot) {
-    return path.resolve(explicitPackageRoot);
-  }
-
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 10; i++) {
-    if (hasPackageAssets(current)) {
-      return current;
-    }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-
-  return process.cwd();
-}
-
-function hasPackageAssets(root: string): boolean {
-  return fs.existsSync(path.join(root, "agents")) && fs.existsSync(path.join(root, "skills"));
-}
-
 function resolveConfig(
   projectRoot: string,
   options: GenerateClaudeCodePluginOptions,
   diagnostics: ClaudeCodeGeneratorDiagnostic[],
-): Required<ZeroxCraftConfig> {
+): ZeroxCraftConfig {
   if (options.config) {
     return mergeConfig(options.config);
   }
 
-  const { config: rawConfig } = loadConfig(projectRoot, options.homeDir);
-  const validation = validateConfig(rawConfig);
-  if (!validation.valid) {
-    diagnostics.push(...validation.errors.map((error) => ({
-      severity: "warning" as const,
-      code: "claude-code.config.invalid",
-      message: error,
-    })));
+  const { config, diagnostics: loaderDiagnostics } = loadConfig({
+    harness: "claude-code",
+    projectRoot,
+    homeDir: options.homeDir,
+  });
+  for (const diag of loaderDiagnostics) {
+    if (diag.severity === "error" || diag.severity === "warn") {
+      diagnostics.push({
+        severity: diag.severity === "error" ? "error" : "warning",
+        code: diag.code,
+        message: diag.message,
+      });
+    }
   }
-  return mergeConfig(validation.config as Partial<ZeroxCraftConfig>);
+  // Strict Zod inside loadConfig already validated the shape; no
+  // separate validateConfig pass needed (T-12.8).
+  return config;
 }
 
-function selectSkills(skills: SkillDefinition[], config: Required<ZeroxCraftConfig>): SkillDefinition[] {
-  if (config.enabledSkills.length === 0) {
+function selectSkills(skills: SkillDefinition[], config: ZeroxCraftConfig): SkillDefinition[] {
+  if (config.enabled.skills.length === 0) {
     return skills;
   }
-  const enabled = new Set(config.enabledSkills);
+  const enabled = new Set(config.enabled.skills);
   return skills.filter((skill) => enabled.has(skill.id));
 }
 
@@ -415,7 +362,7 @@ function validateMarkdownFrontmatter(
   diagnostics: ClaudeCodeGeneratorDiagnostic[],
 ): void {
   try {
-    schema.parse(parseFrontmatter(fs.readFileSync(path.join(outputPath, relativeFile), "utf8")));
+    schema.parse(parseFrontmatter(fs.readFileSync(path.join(outputPath, relativeFile), "utf8")).meta);
   } catch {
     diagnostics.push({
       severity: "error",
@@ -426,91 +373,11 @@ function validateMarkdownFrontmatter(
   }
 }
 
-function parseFrontmatter(markdown: string): Record<string, unknown> {
-  if (!markdown.startsWith("---\n")) {
-    throw new Error("Missing frontmatter");
-  }
-  const end = markdown.indexOf("\n---", 4);
-  if (end === -1) {
-    throw new Error("Unterminated frontmatter");
-  }
-
-  const result: Record<string, unknown> = {};
-  const lines = markdown.slice(4, end).split("\n");
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    if (!line) continue;
-    const keyValue = line.match(/^([^:]+):(?:\s*(.*))?$/u);
-    if (!keyValue) continue;
-    const key = keyValue[1]?.trim();
-    const rawValue = keyValue[2] ?? "";
-    if (!key) continue;
-    if (rawValue === "") {
-      const values: string[] = [];
-      while (lines[index + 1]?.startsWith("  - ")) {
-        index++;
-        values.push(parseScalar(lines[index]?.slice(4) ?? "") as string);
-      }
-      result[key] = values;
-      continue;
-    }
-    result[key] = parseScalar(rawValue);
-  }
-  return result;
-}
-
-function parseScalar(value: string): string | number | boolean {
-  const trimmed = value.trim();
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  if (/^-?\d+(?:\.\d+)?$/u.test(trimmed)) return Number(trimmed);
-  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return JSON.parse(trimmed) as string;
-  }
-  return trimmed;
-}
-
-function getCompatibilityWarnings(compatibility: ClaudeCodeCapabilityTarget | undefined): ClaudeCodeGeneratorDiagnostic[] {
-  const diagnostics: ClaudeCodeGeneratorDiagnostic[] = [];
-  for (const capability of ["pluginDir", "reloadPlugins"] as const) {
-    const status = compatibility?.capabilities?.[capability];
-    if (status === "unsupported" || status === "unknown") {
-      diagnostics.push({
-        severity: "warning",
-        code: `claude.compat.${toSnakeCase(capability)}_${status}`,
-        message: `Claude Code capability ${capability} is ${status}.`,
-        details: { version: compatibility?.version },
-      });
-    }
-  }
-
-  if (compatibility?.supportsDisplayName !== true && !isVersionAtLeast(compatibility?.version, [2, 1, 143])) {
-    diagnostics.push({
-      severity: "warning",
-      code: "claude.compat.display_name_unsupported",
-      message: "Claude Code displayName support is unavailable or unknown; generated manifest omits displayName.",
-      details: { version: compatibility?.version },
-    });
-  }
-  return diagnostics;
-}
-
-function toValidationInfo(compatibility: ClaudeCodeCapabilityTarget | undefined): ClaudeCodeValidationInfo | undefined {
-  if (!compatibility) return undefined;
-  return {
-    version: compatibility.version,
-    capabilities: {
-      pluginValidate: compatibility.capabilities?.pluginValidate,
-    },
-  };
-}
-
 function fromValidationDiagnostic(diagnostic: ClaudeValidationDiagnostic): ClaudeCodeGeneratorDiagnostic {
   return {
     severity: diagnostic.severity,
     code: diagnostic.code,
     message: diagnostic.message,
-    details: diagnostic.version ? { version: diagnostic.version } : undefined,
   };
 }
 
@@ -521,6 +388,32 @@ function collectResult(
 ): void {
   emittedFiles.push(...result.emittedFiles);
   diagnostics.push(...(result.diagnostics ?? []).map(normalizeDiagnostic));
+}
+
+/**
+ * Drain a `DiagnosticCollector` into the legacy
+ * `ClaudeCodeGeneratorDiagnostic[]` shape. Severity mapping:
+ *   - `error`  → `error`
+ *   - `warn`   → `warning`
+ *   - `info`   → `warning` (legacy shape has no info bucket; downgrade
+ *     would lose visibility, so we surface info-level matrix breadcrumbs
+ *     such as `hook.experimental` as warnings here. `build.ts` consumes
+ *     the legacy array then re-promotes back into a fresh collector, so
+ *     downstream `Diagnostic.severity` remains a best-effort approximation.
+ *     Future work: introduce `info` into the legacy union.)
+ */
+function drainCollectorIntoLegacy(
+  collector: DiagnosticCollector,
+  legacy: ClaudeCodeGeneratorDiagnostic[],
+): void {
+  for (const d of collector.sorted()) {
+    legacy.push({
+      severity: d.severity === "error" ? "error" : "warning",
+      code: d.code,
+      message: d.message,
+      ...(d.details ? { details: d.details } : {}),
+    });
+  }
 }
 
 function normalizeDiagnostic(diagnostic: unknown): ClaudeCodeGeneratorDiagnostic {
@@ -565,15 +458,255 @@ function hasError(diagnostics: Array<{ severity: string }>): boolean {
   return diagnostics.some((diagnostic) => diagnostic.severity === "error");
 }
 
-function toSnakeCase(value: string): string {
-  return value.replace(/[A-Z]/gu, (letter) => `_${letter.toLowerCase()}`);
+/* ------------------------------------------------------------------ */
+/*  Batch 4 — canonical build() entry (ADR §6)                         */
+/*                                                                     */
+/*  Re-export `build` from `./build` so consumers can call the         */
+/*  canonical adapter entry. `generateClaudeCodePlugin` above is the   */
+/*  on-disk wrapper that composes `buildClaudeCodeFiles` (single       */
+/*  source of orchestration) and persists the captured files.         */
+/* ------------------------------------------------------------------ */
+export { build, type ClaudeCodeArtifact } from "./build";
+
+/* ------------------------------------------------------------------ */
+/*  T-12.9 — in-memory builder                                          */
+/*                                                                     */
+/*  `buildClaudeCodeFiles` runs the same generator orchestration as    */
+/*  `generateClaudeCodePlugin` but against an in-memory writer.        */
+/*  Returns the captured files + diagnostics WITHOUT any disk          */
+/*  round-trip. `build.ts` consumes this to assemble `PlatformArtifact` */
+/*  purely in memory. Determinism: same input → byte-identical `files`. */
+/* ------------------------------------------------------------------ */
+
+export interface BuildClaudeCodeFilesOptions {
+  packageRoot?: string;
+  projectRoot?: string;
+  force?: boolean;
+  config?: PartialZeroxCraftConfig;
+  settings?: Record<string, unknown>;
+  selectedAssets?: ClaudeCodeSelectedAssets;
+  homeDir?: string;
+  builtInAgents?: AgentSpec[];
+  customAgents?: AgentSpec[];
+  builtInSkills?: SkillDefinition[];
+  customSkills?: SkillDefinition[];
+  builtInHooks?: HookSpec[];
+  builtInMcpServers?: McpServerSpec[];
+  dependencies?: ClaudeCodePluginGeneratorDependencies;
 }
 
-function isVersionAtLeast(version: string | undefined, minimum: readonly [number, number, number]): boolean {
-  const match = version?.match(/^(?:v)?(\d+)\.(\d+)\.(\d+)/u);
-  if (!match) return false;
-  const parsed = [Number(match[1]), Number(match[2]), Number(match[3])] as const;
-  if (parsed[0] !== minimum[0]) return parsed[0] > minimum[0];
-  if (parsed[1] !== minimum[1]) return parsed[1] > minimum[1];
-  return parsed[2] >= minimum[2];
+export interface BuildClaudeCodeFilesResult {
+  ok: boolean;
+  files: InMemoryFile[];
+  emittedFiles: string[];
+  diagnostics: ClaudeCodeGeneratorDiagnostic[];
+  localValidation: ClaudeCodeLocalValidationResult;
+}
+
+export async function buildClaudeCodeFiles(
+  options: BuildClaudeCodeFilesOptions = {},
+): Promise<BuildClaudeCodeFilesResult> {
+  const packageRoot = options.packageRoot
+    ? path.resolve(options.packageRoot)
+    : sharedResolvePackageRoot({ startDir: path.dirname(fileURLToPath(import.meta.url)) });
+  const projectRoot = path.resolve(options.projectRoot ?? process.cwd());
+  const selectedAssets = { ...DEFAULT_SELECTED_ASSETS, ...(options.selectedAssets ?? {}) };
+  const dependencies = options.dependencies ?? {};
+  const diagnostics: ClaudeCodeGeneratorDiagnostic[] = [];
+  const emittedFiles: string[] = [];
+  const config = resolveConfig(projectRoot, options, diagnostics);
+  const writer = createInMemoryClaudeCodeWriter();
+
+  const agentsResult = selectedAssets.agents
+    ? (dependencies.generateAgents ?? generateClaudeCodeAgents)({
+      packageRoot,
+      writer,
+      builtInAgents: options.builtInAgents ?? builtinAgents,
+      customAgents: options.customAgents,
+      config,
+    })
+    : emptyResult();
+  collectResult(agentsResult, emittedFiles, diagnostics);
+
+  const skillsResult = selectedAssets.skills
+    ? (dependencies.generateSkills ?? generateClaudeCodeSkills)({
+      skills: selectSkills([...(options.builtInSkills ?? builtinSkills), ...(options.customSkills ?? [])], config),
+      disabledSkillIds: config.disabled.skills,
+      packageRoot,
+      writer,
+    })
+    : { emittedFiles: [], diagnostics: [], skills: [], mcpServers: [] } satisfies ClaudeCodeSkillsGeneratorResult;
+  collectResult(skillsResult, emittedFiles, diagnostics);
+
+  const hooksResult = selectedAssets.hooks
+    ? (() => {
+        const collector = new DiagnosticCollector();
+        emitClaudeCodeHookMatrixSweep(collector);
+        const inputHooks = options.builtInHooks ?? builtinHooks;
+        const routed = routeClaudeCodeHooks({
+          hooks: inputHooks,
+          collector,
+          disabledHooks: config.disabled.hooks,
+        });
+        drainCollectorIntoLegacy(collector, diagnostics);
+        return (dependencies.generateHooks ?? generateClaudeCodeHooks)({
+          writer,
+          hooks: routed.emittableHooks as HookSpec[],
+          disabledHooks: config.disabled.hooks,
+          projectRoot,
+          runtime: config.platforms["claude-code"]?.hookRuntime,
+          config,
+        });
+      })()
+    : { emittedFiles: [], diagnostics: [], scriptFiles: [] } satisfies GenerateClaudeCodeHooksResult;
+  collectResult(hooksResult, emittedFiles, diagnostics);
+
+  for (const scriptFile of hooksResult.scriptFiles ?? []) {
+    try {
+      const emitted = writer.writeFile(scriptFile.path, scriptFile.content, scriptFile.mode);
+      emittedFiles.push(...emitted);
+    } catch (err) {
+      diagnostics.push({
+        severity: "error",
+        code: "claude-code.hook_script.write_failed",
+        message: `Failed to write hook shim ${scriptFile.path}: ${(err as Error).message}`,
+        details: { path: scriptFile.path },
+      });
+    }
+  }
+
+  const mcpResult = selectedAssets.mcpServers
+    ? (dependencies.generateMcp ?? generateClaudeCodeMcp)({
+      writer,
+      builtinServers: (options.builtInMcpServers ?? builtinMcpServers).map((s) => ({
+        name: s.id,
+        type: s.transport === "stdio" ? "local" : "remote",
+        ...(s.transport === "stdio" ? { command: s.command } : { url: s.url, headers: s.headers }),
+        ...(s.env ? { env: s.env } : {}),
+        enabledByDefault: s.enabledByDefault,
+      })),
+      userServers: Object.fromEntries(
+        Object.entries(config.mcpServers).map(([name, spec]) => {
+          const base = spec.transport === "stdio"
+            ? { type: "local" as const, command: [...spec.command] }
+            : { type: "remote" as const, url: spec.url, ...(spec.headers ? { headers: { ...spec.headers } } : {}) };
+          return [name, { ...base, ...(spec.env ? { env: { ...spec.env } } : {}) }];
+        }),
+      ),
+      skillServers: [],
+    })
+    : emptyResult();
+  collectResult(mcpResult, emittedFiles, diagnostics);
+
+  const settingsResult = selectedAssets.settings
+    ? (dependencies.generateSettings ?? generateClaudeCodeSettings)({ writer, settings: options.settings })
+    : { emittedFiles: [] } satisfies GenerateClaudeCodeSettingsResult;
+  collectResult(settingsResult, emittedFiles, diagnostics);
+
+  const manifestResult = (dependencies.generateManifest ?? generateManifestWithWriter)({
+    // outputRoot is unused by the manifest generator (it delegates to
+    // the writer), but the type requires a string. Pass virtual placeholder.
+    outputRoot: "<in-memory>",
+    force: options.force,
+    writer,
+    packageMetadata: readPackageMetadata(packageRoot, diagnostics),
+    emittedComponents: {
+      agents: agentsResult.emittedFiles.length > 0,
+      skills: skillsResult.emittedFiles.length > 0,
+      hooks: hooksResult.emittedFiles.length > 0,
+      mcpServers: mcpResult.emittedFiles.length > 0,
+    },
+  });
+  collectResult(manifestResult, emittedFiles, diagnostics);
+
+  const uniqueEmitted = uniqueSorted(emittedFiles);
+  const localValidation = validateGeneratedPluginInMemory(writer.snapshot(), uniqueEmitted);
+  diagnostics.push(...localValidation.diagnostics);
+
+  return {
+    ok: localValidation.ok && !hasError(diagnostics),
+    files: writer.snapshot(),
+    emittedFiles: uniqueEmitted,
+    diagnostics,
+    localValidation,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  In-memory local validation                                          */
+/* ------------------------------------------------------------------ */
+
+function validateGeneratedPluginInMemory(
+  files: InMemoryFile[],
+  emittedFiles: string[],
+): ClaudeCodeLocalValidationResult {
+  const diagnostics: ClaudeCodeGeneratorDiagnostic[] = [];
+  const byPath = new Map(files.map((f) => [f.path, f.content]));
+
+  validateJsonInMemory(byPath, ".claude-plugin/plugin.json", claudeCodeManifestSchema, diagnostics, true);
+  validateJsonInMemory(byPath, ".mcp.json", claudeCodeMcpJsonSchema, diagnostics, false);
+  validateJsonInMemory(byPath, "hooks/hooks.json", claudeCodeHooksJsonSchema, diagnostics, false);
+  validateJsonInMemory(byPath, "settings.json", claudeCodeSettingsJsonSchema, diagnostics, false);
+
+  for (const file of emittedFiles) {
+    if (file.startsWith("agents/") && file.endsWith(".md")) {
+      validateMarkdownFrontmatterInMemory(byPath, file, claudeCodeAgentFrontmatterSchema, diagnostics);
+    }
+    if (file.startsWith("skills/") && file.endsWith("/SKILL.md")) {
+      validateMarkdownFrontmatterInMemory(byPath, file, claudeCodeSkillFrontmatterSchema, diagnostics);
+    }
+  }
+
+  return { ok: !hasError(diagnostics), diagnostics };
+}
+
+function validateJsonInMemory(
+  byPath: Map<string, string>,
+  relativeFile: string,
+  schema: { parse(value: unknown): unknown },
+  diagnostics: ClaudeCodeGeneratorDiagnostic[],
+  required: boolean,
+): void {
+  const content = byPath.get(relativeFile);
+  if (content === undefined) {
+    if (required) {
+      diagnostics.push({
+        severity: "error",
+        code: "claude-code.local_validation.missing_file",
+        message: `Generated Claude Code plugin is missing required file ${relativeFile}.`,
+        details: { file: relativeFile },
+      });
+    }
+    return;
+  }
+  try {
+    schema.parse(JSON.parse(content));
+  } catch {
+    diagnostics.push({
+      severity: "error",
+      code: "claude-code.local_validation.invalid_json_artifact",
+      message: `Generated Claude Code artifact ${relativeFile} failed local schema validation.`,
+      details: { file: relativeFile },
+    });
+  }
+}
+
+function validateMarkdownFrontmatterInMemory(
+  byPath: Map<string, string>,
+  relativeFile: string,
+  schema: { parse(value: unknown): unknown },
+  diagnostics: ClaudeCodeGeneratorDiagnostic[],
+): void {
+  const content = byPath.get(relativeFile);
+  if (content === undefined) return;
+  try {
+    schema.parse(parseFrontmatter(content).meta);
+  } catch {
+    diagnostics.push({
+      severity: "error",
+      code: "claude-code.local_validation.invalid_markdown_frontmatter",
+      message: `Generated Claude Code markdown artifact ${relativeFile} failed frontmatter validation.`,
+      details: { file: relativeFile },
+    });
+  }
 }

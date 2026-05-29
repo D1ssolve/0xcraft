@@ -52,3 +52,25 @@ oauth-success.html
 .debug-journal*.md
 session-ses_*.md
 plans/
+
+# Generated harness artifacts — recreated by
+# `0xcraft {claude-code,codex} generate` / `install --harness ...`.
+# Never commit:
+#   - .claude-plugin/                    claude-code filesystem plugin output
+#   - .codex/                            codex filesystem tree (config.toml, agents/, hooks/, skills/)
+#   - .codex-plugin/                     codex filesystem plugin bundle (Batch E)
+#   - .agents/skills/                    codex skills tree (copies of skills/<id>/SKILL.md)
+#   - .agents/plugins/marketplace.json   codex marketplace stub
+.claude-plugin/
+.codex/
+.codex-plugin/
+.agents/skills/
+.agents/plugins/marketplace.json
+
+# Dual-mode planning artifacts (spec-driven-dual / system-architect-dual).
+# The synthesized canonical files (.ai/spec.md, .ai/adr.md, .ai/tasks.md)
+# remain tracked; per-model candidates and compare reports are local only.
+.ai/*.gpt.md
+.ai/*.sonnet.md
+.ai/spec.compare.md
+.ai/arch.compare.md

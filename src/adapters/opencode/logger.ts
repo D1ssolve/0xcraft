@@ -1,9 +1,9 @@
-import type { DiagnosticEvent, DiagnosticSink } from "../../core/config/config-loader";
+import type { Diagnostic } from "../../core/diagnostics/diagnostic";
 
 type OpenCodeLogSink = (event: {
   body: {
     service: "0xcraft";
-    level: DiagnosticEvent["level"];
+    level: "debug" | "info" | "warn" | "error";
     message: string;
     extra: Record<string, unknown>;
   };
@@ -16,7 +16,7 @@ interface OpenCodeClientShape {
 }
 
 export interface OpenCodeLogger {
-  log: DiagnosticSink;
+  log: (diagnostic: Diagnostic) => void;
 }
 
 function isOpenCodeClientShape(value: unknown): value is OpenCodeClientShape {
@@ -26,13 +26,24 @@ function isOpenCodeClientShape(value: unknown): value is OpenCodeClientShape {
 function getLogSink(client: unknown): OpenCodeLogSink | undefined {
   if (!isOpenCodeClientShape(client)) return undefined;
   const log = client.app?.log;
-  return typeof log === "function" ? log.bind(client.app) as OpenCodeLogSink : undefined;
+  return typeof log === "function" ? (log.bind(client.app) as OpenCodeLogSink) : undefined;
 }
 
-function fallbackToConsole(event: DiagnosticEvent): void {
-  if (event.level !== "warn" && event.level !== "error") return;
-  const line = `[0xcraft] ${event.message}`;
-  if (event.level === "error") {
+function severityToLevel(severity: Diagnostic["severity"]): "debug" | "info" | "warn" | "error" {
+  switch (severity) {
+    case "error":
+      return "error";
+    case "warn":
+      return "warn";
+    case "info":
+      return "info";
+  }
+}
+
+function fallbackToConsole(diag: Diagnostic): void {
+  if (diag.severity !== "warn" && diag.severity !== "error") return;
+  const line = `[0xcraft] ${diag.message}`;
+  if (diag.severity === "error") {
     console.error(line);
     return;
   }
@@ -43,9 +54,9 @@ export function createOpenCodeLogger(args: { client?: unknown } = {}): OpenCodeL
   const sink = getLogSink(args.client);
 
   return {
-    log(event: DiagnosticEvent): void {
+    log(diag: Diagnostic): void {
       if (!sink) {
-        fallbackToConsole(event);
+        fallbackToConsole(diag);
         return;
       }
 
@@ -53,9 +64,9 @@ export function createOpenCodeLogger(args: { client?: unknown } = {}): OpenCodeL
         const result = sink({
           body: {
             service: "0xcraft",
-            level: event.level,
-            message: event.message,
-            extra: { code: event.code, ...(event.extra ?? {}) },
+            level: severityToLevel(diag.severity),
+            message: diag.message,
+            extra: { code: diag.code, ...((diag.details as Record<string, unknown>) ?? {}) },
           },
         });
 

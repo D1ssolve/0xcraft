@@ -1,2 +1,35 @@
-export { type ZeroxCraftConfig, type McpServerConfig, defaultConfig, mergeConfig } from "./config-types";
-export { stripJsonc, parseJsonc, loadConfig, validateConfig } from "./config-loader";
+export {
+  type ZeroxCraftConfig,
+  type PartialZeroxCraftConfig,
+  type OpencodePlatformConfig,
+  type ClaudeCodePlatformConfig,
+  type CodexPlatformConfig,
+  type CodexAgentExtension,
+  type CodexMcpExtension,
+  type CodexPermissionProfile,
+  type ZeroxCraftConfigPlatforms,
+  type PlatformsConfig,
+  type PlatformId,
+  PLATFORM_IDS,
+  isPlatformId,
+  defaultConfig,
+  mergeConfig,
+} from "./config-types";
+export {
+  zeroxCraftConfigSchema,
+  mcpServerSpecSchema,
+  platformIdSchema,
+  type ZeroxCraftConfigInput,
+  type ZeroxCraftConfigParsed,
+} from "./config-schema";
+export {
+  stripJsonc,
+  parseJsonc,
+  sanitizeDetails,
+  loadConfig,
+  getConfigPaths,
+  type LoadConfigOptions,
+  type LoadConfigResult,
+  type ConfigPathCandidate,
+  type ConfigSourceKind,
+} from "./config-loader";

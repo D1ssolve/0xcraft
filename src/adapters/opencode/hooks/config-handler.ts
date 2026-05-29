@@ -1,144 +1,19 @@
 import fs from "fs";
-import path from "path";
 import type { ZeroxCraftConfig } from "../../../core/config";
 import { builtinAgents } from "../../../core/agents";
 import { builtinSkills } from "../../../core/skills";
 import { builtinMcpServers } from "../../../core/mcp";
-import type { AgentPermissions } from "../../../core/agents/agent-types";
-
-const SPEC_TEMPLATE_TOKEN = "{{SPEC_TEMPLATE_PATH}}";
-
-interface MarkdownAgentConfig {
-  description?: string;
-  mode?: string;
-  model?: string;
-  temperature?: number;
-  color?: string;
-  permission?: Record<string, unknown>;
-  prompt: string;
-}
-
-function readPrompt(root: string, promptFile: string): string {
-  const content = fs.readFileSync(`${root}/${promptFile}`, "utf-8");
-  if (!content.startsWith("---")) return content;
-  const end = content.indexOf("\n---", 3);
-  if (end === -1) return content;
-  return content.slice(end + "\n---".length).trimStart();
-}
-
-function parseScalar(value: string): unknown {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  const numberValue = Number(value);
-  if (value !== "" && Number.isFinite(numberValue)) return numberValue;
-  return value.replace(/^['"]|['"]$/g, "");
-}
-
-function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
-  if (!content.startsWith("---")) return { frontmatter: {}, body: content };
-  const end = content.indexOf("\n---", 3);
-  if (end === -1) return { frontmatter: {}, body: content };
-
-  const frontmatter: Record<string, unknown> = {};
-  const lines = content.slice(3, end).trim().split("\n");
-  let currentObjectKey: string | undefined;
-
-  for (const line of lines) {
-    if (line.trim() === "") continue;
-    const nestedMatch = line.match(/^\s+([^:]+):\s*(.*)$/);
-    if (nestedMatch && currentObjectKey) {
-      const nestedObject = frontmatter[currentObjectKey] as Record<string, unknown>;
-      const nestedKey = nestedMatch[1];
-      const nestedValue = nestedMatch[2];
-      if (nestedKey === undefined || nestedValue === undefined) continue;
-      nestedObject[nestedKey.trim()] = parseScalar(nestedValue.trim());
-      continue;
-    }
-
-    const topLevelMatch = line.match(/^([^:]+):\s*(.*)$/);
-    if (!topLevelMatch) continue;
-
-    const rawKey = topLevelMatch[1];
-    const rawValue = topLevelMatch[2];
-    if (rawKey === undefined || rawValue === undefined) continue;
-    const key = rawKey.trim();
-    const value = rawValue.trim();
-    if (value === "") {
-      frontmatter[key] = {};
-      currentObjectKey = key;
-      continue;
-    }
-
-    frontmatter[key] = parseScalar(value);
-    currentObjectKey = undefined;
-  }
-
-  return { frontmatter, body: content.slice(end + "\n---".length).trimStart() };
-}
-
-function readMarkdownAgent(filePath: string): MarkdownAgentConfig {
-  const content = fs.readFileSync(filePath, "utf-8");
-  const { frontmatter, body } = parseFrontmatter(content);
-  return {
-    ...(typeof frontmatter.description === "string" ? { description: frontmatter.description } : {}),
-    ...(typeof frontmatter.mode === "string" ? { mode: frontmatter.mode } : {}),
-    ...(typeof frontmatter.model === "string" ? { model: frontmatter.model } : {}),
-    ...(typeof frontmatter.temperature === "number" ? { temperature: frontmatter.temperature } : {}),
-    ...(typeof frontmatter.color === "string" ? { color: frontmatter.color } : {}),
-    ...(typeof frontmatter.permission === "object" && frontmatter.permission !== null
-      ? { permission: frontmatter.permission as Record<string, unknown> }
-      : {}),
-    prompt: body,
-  };
-}
-
-function resolvePromptTokens(prompt: string, root: string): string {
-  if (!prompt.includes(SPEC_TEMPLATE_TOKEN)) return prompt;
-  const specTemplatePath = path.resolve(root, "templates", "spec-template.md");
-  return prompt.replaceAll(SPEC_TEMPLATE_TOKEN, specTemplatePath);
-}
-
-function resolveAgentPermissions(permissions: AgentPermissions, root: string): AgentPermissions {
-  const externalDirectory = permissions.external_directory;
-  if (!externalDirectory) return permissions;
-
-  const resolvedExternalDirectory: Record<string, "allow" | "deny"> = {};
-  for (const [pattern, access] of Object.entries(externalDirectory)) {
-    const resolvedPattern = pattern.startsWith("~") || path.isAbsolute(pattern) ? pattern : path.resolve(root, pattern);
-    resolvedExternalDirectory[resolvedPattern] = access;
-  }
-
-  return {
-    ...permissions,
-    external_directory: resolvedExternalDirectory,
-  };
-}
-
-function toOpenCodeMcp(server: {
-  type: "local" | "remote";
-  command?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  headers?: Record<string, string>;
-}): Record<string, unknown> | null {
-  if (server.type === "local" && server.command) {
-    return {
-      type: "local",
-      command: server.command,
-      ...(server.env ? { environment: server.env } : {}),
-    };
-  }
-
-  if (server.type === "remote" && server.url) {
-    return {
-      type: "remote",
-      url: server.url,
-      ...(server.headers ? { headers: server.headers } : {}),
-    };
-  }
-
-  return null;
-}
+import { extractPromptBody } from "../../_shared/prompt-body";
+import { DiagnosticCollector } from "../../_shared/diagnostic-collector";
+import {
+  mapAgentToOpencode,
+  readMarkdownAgent,
+  resolveExternalDirectory,
+  resolvePromptTokens,
+} from "../mappers/agents";
+import { mapMcpServersToOpencode } from "../mappers/mcp";
+import { mapPermissions } from "../mappers/permissions";
+import { mapSkillsToOpencode, selectEnabledSkills } from "../mappers/skills";
 
 function ensureRecord(config: Record<string, unknown>, key: string): Record<string, unknown> {
   const value = config[key];
@@ -152,51 +27,44 @@ function ensureRecord(config: Record<string, unknown>, key: string): Record<stri
 /**
  * Creates the config hook handler.
  *
- * This hook registers all agents, skills, and MCP servers
- * with OpenCode on startup.
+ * Registers all built-in agents, skills, and MCP servers with OpenCode
+ * on startup. Mutates the inputConfig directly.
  *
- * The OpenCode config hook receives a mutable config object.
- * We mutate it directly to add agents, skills, and MCPs.
- * This matches how oh-my-openagent handles it.
+ * Per-agent model overrides come from `modelOverrides` plus optional
+ * platform override `platformModelOverrides.opencode`. Skills are
+ * filtered by `disabled.skills`/`enabled.skills`. Agent permissions
+ * consume the canonical `PermissionSpec` and are mapped to OpenCode's
+ * flat `PermissionConfig` via `mapPermissions` (T-12.6).
  */
 export function createConfigHandler(args: {
-  config: Required<ZeroxCraftConfig>;
+  config: ZeroxCraftConfig;
   projectRoot: string;
   pkgRoot?: string;
 }) {
   const { config, projectRoot, pkgRoot } = args;
   const root = pkgRoot ?? projectRoot;
+  const platformOverrides = config.platformModelOverrides?.opencode ?? {};
 
   return async (inputConfig: Record<string, unknown>): Promise<void> => {
-    // Register agents
-    const enabledAgents = builtinAgents.filter((agent) => {
-      if (config.disabledAgents.includes(agent.id)) return false;
-      if (config.enabledAgents.length > 0 && !config.enabledAgents.includes(agent.id)) return false;
-      return true;
-    });
-
-    // Ensure agent object exists
+    // Ensure agent object exists (normalises malformed shapes).
     const agents = ensureRecord(inputConfig, "agent") as Record<string, Record<string, unknown>>;
 
-    for (const agent of enabledAgents) {
-      const modelOverride = config.modelOverrides[agent.id];
-      const tempOverride = config.temperatureOverrides[agent.id];
-      const prompt = resolvePromptTokens(readPrompt(root, agent.promptFile), root);
-      const permission = resolveAgentPermissions(agent.permissions, root);
+    for (const agent of builtinAgents) {
+      const modelOverride = platformOverrides[agent.id] ?? config.modelOverrides[agent.id];
+      const prompt = resolvePromptTokens(extractPromptBody(`${root}/${agent.promptFile}`), root);
+      const collector = new DiagnosticCollector();
+      const mapped = agent.permission
+        ? mapPermissions(agent.permission, collector)
+        : {};
+      const permission = resolveExternalDirectory(mapped, root);
 
       agents[agent.id] = {
         ...(agents[agent.id] ?? {}),
-        description: agent.description,
-        mode: agent.mode,
-        model: modelOverride ?? agent.model,
-        temperature: tempOverride ?? agent.temperature,
-        color: agent.color,
-        permission,
-        prompt,
+        ...mapAgentToOpencode({ agent, prompt, modelOverride, permission }),
       };
     }
 
-    for (const customPath of config.customAgentPaths) {
+    for (const customPath of config.customPaths.agents) {
       if (!fs.existsSync(customPath)) continue;
       const entries = fs.readdirSync(customPath, { withFileTypes: true });
       for (const entry of entries) {
@@ -210,50 +78,21 @@ export function createConfigHandler(args: {
       }
     }
 
-    // Register skill paths
-    const enabledSkills = builtinSkills.filter((skill) => {
-      if (config.disabledSkills.includes(skill.id)) return false;
-      if (config.enabledSkills.length > 0 && !config.enabledSkills.includes(skill.id)) return false;
-      return true;
-    });
+    const enabledSkills = selectEnabledSkills(builtinSkills, config);
 
     const skills = ensureRecord(inputConfig, "skills");
     if (!Array.isArray(skills.paths)) skills.paths = [];
     const skillPaths = skills.paths as string[];
 
-    for (const skill of enabledSkills) {
-      const skillDir = `${root}/${skill.skillFile.replace(/\/SKILL\.md$/, "")}`;
-      if (!skillPaths.includes(skillDir)) {
-        skillPaths.push(skillDir);
+    for (const skillPath of mapSkillsToOpencode({ skills: enabledSkills, packageRoot: root }).paths) {
+      if (!skillPaths.includes(skillPath)) {
+        skillPaths.push(skillPath);
       }
     }
-    // Add custom skill paths
-    for (const customPath of config.customSkillPaths) {
-      if (!skillPaths.includes(customPath)) {
-        skillPaths.push(customPath);
-      }
-    }
-
-    // Register MCP servers
-    const enabledMcps = builtinMcpServers.filter((mcp) => {
-      if (!mcp.enabledByDefault && !config.mcpServers[mcp.name]) return false;
-      return true;
-    });
 
     const mcp = ensureRecord(inputConfig, "mcp") as Record<string, Record<string, unknown>>;
-
-    for (const mcpServer of enabledMcps) {
-      const mcpConfig = toOpenCodeMcp(mcpServer);
-      if (mcpConfig) mcp[mcpServer.name] = mcpConfig;
-    }
-    // NOTE: skill-embedded MCPs (skill.mcpServers) are intentionally NOT registered here.
-    // Per AGENTS.md invariant: "MCP on-demand — skill-embedded MCPs start only when
-    // the skill is activated." Users who need a skill's MCP at startup should add it
-    // explicitly to config.mcpServers.
-    // Add user-configured MCP servers
-    for (const [name, server] of Object.entries(config.mcpServers)) {
-      const mcpConfig = toOpenCodeMcp(server);
-      if (mcpConfig) mcp[name] = mcpConfig;
+    for (const [name, mcpConfig] of Object.entries(mapMcpServersToOpencode({ builtins: builtinMcpServers, config }))) {
+      mcp[name] = mcpConfig;
     }
   };
 }

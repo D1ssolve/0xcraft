@@ -1,10 +1,18 @@
 # 0xcraft
 
-> Agent operations plugin for OpenCode — harness-agnostic core with thin adapter layer.
+> Multi-harness agent operations plugin — harness-agnostic core with thin adapters for OpenCode, Claude Code, and Codex.
 
 You're juggling 17 agents, 20 skills, 3 plugins, and 4 MCP servers. Configuring workflows. Debugging hooks.
 
-0xcraft packages all of it into a single installable plugin. One config file. One `opencode plugin add`.
+0xcraft packages all of it into a single installable plugin. One config file. One install command per harness.
+
+## Supported harnesses
+
+| Harness     | Mode                                       | Install                                                     |
+| ----------- | ------------------------------------------ | ----------------------------------------------------------- |
+| OpenCode    | Default package export, runtime plugin     | `opencode plugin add 0xcraft`                               |
+| Claude Code | Generated filesystem plugin (local load)   | `bun run src/cli/index.ts install --harness claude-code`    |
+| Codex       | Generated TOML config + agent files + hooks | `bun run src/cli/index.ts install --harness codex`          |
 
 ## What It Does
 
@@ -12,22 +20,33 @@ You're juggling 17 agents, 20 skills, 3 plugins, and 4 MCP servers. Configuring 
 - **20 skills** — brainstorming, caveman, code-review-orchestrator, context7, implementation-patterns, pm-routing, systematic-debugging, TDD, verification, and more
 - **3 bootstrap hooks** — agents-guard (AGENTS.md check), caveman (communication mode), git-worktree (worktree context)
 - **4 MCP servers** — sequential-thinking, context7, mempalace, notebooklm-mcp
-- **Harness-agnostic core** — zero OpenCode dependencies in `src/core/`. The OpenCode adapter remains the package default export; the Claude Code adapter generates filesystem plugin artifacts for local loading.
+- **Harness-agnostic core** — zero platform dependencies in `src/core/`. The OpenCode adapter is the package default export; Claude Code and Codex adapters generate filesystem artifacts for local loading.
+- **Capability matrix** — single source of truth (`src/adapters/_shared/capability-matrix.ts`) drives every adapter's emission and diagnostic decisions per ADR Rev 3.
 
 ## Architecture
 
 ```txt
-src/core/          ← Harness-agnostic. Zero dependencies.
+src/core/          ← Harness-agnostic. Zero platform dependencies.
   agents/          ← AgentDefinition data + registry
   skills/          ← SkillDefinition data + registry
   config/          ← ZeroxCraftConfig schema + merge
-  hooks/           ← HookDefinition data + registry
+  hooks/           ← HookDefinition data + registry (with buildContext)
   mcp/             ← McpRegistryEntry data + registry
+  diagnostic.ts    ← Shared Diagnostic primitive
 
 src/adapters/
-  opencode/        ← Thin adapter. Imports core, wraps in plugin API.
-    hooks/          ← config, agents-guard, caveman, git-worktree
-  claude-code/     ← Generator for Claude Code plugin-dir artifacts.
+  _shared/         ← Capability matrix + bootstrap text + TOML emitter
+  opencode/        ← Runtime plugin via @opencode-ai/plugin
+    hooks/         ← config, agents-guard, caveman, git-worktree
+  claude-code/    ← Generates .claude-plugin/ artifacts
+  codex/          ← Generates .codex/ config.toml + agents/*.toml + hook scripts
+
+src/cli/
+  index.ts         ← Commander entrypoint
+  install.ts       ← install --harness <opencode|claude-code|codex>
+  doctor.ts        ← doctor --harness <id>
+  codex.ts         ← codex generate
+  claude-code.ts   ← claude-code generate
 ```
 
 ## Token Optimization
@@ -39,14 +58,37 @@ src/adapters/
 
 ## Installation
 
+### OpenCode (default)
+
 ```bash
-# Install as OpenCode plugin
 opencode plugin add 0xcraft
 
 # Or manually in opencode.json:
 {
   "plugin": ["0xcraft"]
 }
+```
+
+### Claude Code (local plugin-dir)
+
+```bash
+bun run src/cli/index.ts install --harness claude-code --output dist/claude-code-plugin/0xcraft --force
+claude --plugin-dir dist/claude-code-plugin/0xcraft/
+```
+
+### Codex (TOML config)
+
+```bash
+bun run src/cli/index.ts install --harness codex --output . --project . --force
+# Generates .codex/config.toml, .codex/agents/*.toml, .codex/hooks/*.mjs
+```
+
+### Diagnostics
+
+```bash
+bun run src/cli/index.ts doctor                          # opencode (default)
+bun run src/cli/index.ts doctor --harness claude-code
+bun run src/cli/index.ts doctor --harness codex
 ```
 
 ## Claude Code plugin-dir workflow
@@ -99,9 +141,9 @@ Package assets needed by the generator are shipped from the package root: `agent
 
 - Supported workflow: `claude --plugin-dir <dir>` plus `/reload-plugins`.
 - Required capability checks for validation workflows: `--plugin-dir`, `/reload-plugins`, and `claude plugin validate`.
-- `displayName` in `.claude-plugin/plugin.json` is omitted unless Claude Code v2.1.143+ or explicit support is confirmed.
-- Zip loading is deferred. If enabled later, it must be gated behind Claude Code v2.1.128+ and documented separately.
-- Unsupported or unknown Claude Code versions produce warnings for normal generation. Hard failure is reserved for explicit validation or strict checks such as `--validate` / `--strict`.
+- `displayName` in `.claude-plugin/plugin.json` is emitted unconditionally when `packageMetadata.displayName` is set (capability-matrix-driven per ADR Rev 3 — no per-version probing).
+- Zip loading is deferred. If enabled later, it must be gated by the capability matrix.
+- Per ADR Rev 3, the capability matrix is the single source of truth — no runtime version probing.
 
 ### Security and parity limits
 
@@ -161,12 +203,15 @@ Create `~/.config/opencode/0xcraft.json` or `.opencode/0xcraft.json`:
 
 ## Universality
 
-The core module (`src/core/`) has zero harness dependencies. Future adapters:
+The core module (`src/core/`) has zero harness dependencies. All three adapters consume the same registries:
 
-- **Codex**: `src/adapters/codex/` — maps agent definitions to Codex plugin API, skills to Codex skill format
-- **Claude Code**: `src/adapters/claude-code/` — generates local plugin-dir artifacts from the same core registries. This adapter does not replace the OpenCode default export.
+- **OpenCode**: `src/adapters/opencode/` — runtime plugin via `@opencode-ai/plugin`. Default package export.
+- **Claude Code**: `src/adapters/claude-code/` — generates filesystem plugin artifacts (`.claude-plugin/plugin.json`, agents, skills, hooks).
+- **Codex**: `src/adapters/codex/` — generates `.codex/config.toml`, per-agent TOML files, and standalone hook scripts.
 
-Key principle: **Don't over-abstract.** Build the OpenCode adapter first, make it work well, then add other adapters as needed.
+Capability differences are governed by `src/adapters/_shared/capability-matrix.ts` (ADR Rev 3 — single source of truth).
+
+Key principle: **Don't over-abstract.** The core defines data; each adapter maps to its platform's idioms.
 
 ## Development
 

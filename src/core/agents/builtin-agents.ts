@@ -1,4 +1,4 @@
-import type { AgentDefinition } from "./agent-types";
+import type { AgentSpec } from "./agent-spec";
 
 /**
  * Built-in agent registry.
@@ -9,22 +9,29 @@ import type { AgentDefinition } from "./agent-types";
  *
  * Token optimization: only agents referenced in the user's config
  * are loaded. The rest stay as dormant definitions.
+ *
+ * Permission shape: canonical `PermissionSpec` (singular `permission`).
+ * Adapters that still consume the legacy bucketed `permissions` derive
+ * it from this canonical shape via T-12.6 mapper consolidation.
  */
-export const builtinAgents: AgentDefinition[] = [
+export const builtinAgents: AgentSpec[] = [
   {
     id: "team-lead",
     name: "Team Lead",
     description:
       "Analyzes incoming tasks, loads pm-routing skill, composes the right chain of subagents. Does not write business logic itself — delegates all substantive work.",
     mode: "primary",
-    // model: "github-copilot/gpt-5.5",
     model: "github-copilot/claude-opus-4.7",
     color: "accent",
     temperature: 0.2,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      task: {
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "research-agent": "allow",
         "code-explorer": "allow",
@@ -49,11 +56,17 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Implements server-side logic, REST/GraphQL APIs, database integrations, auth systems, and backend infrastructure. Tests are part of implementation, not separate.",
     mode: "subagent",
-    model: "github-copilot/claude-opus-4.7",
+    model: "github-copilot/gpt-5.5",
     color: "secondary",
     temperature: 0.3,
-    permissions: {
-      external_directory: { "~/.nuget/packages*": "allow" },
+    permission: {
+      sandbox: "workspace-write",
+      tools: {},
+      bash: {},
+      filesystem: {
+        readableRoots: ["~/.nuget/packages*"],
+        writableRoots: [],
+      },
     },
     promptFile: "agents/backend-developer.agent.md",
   },
@@ -66,7 +79,12 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gemini-3.5-flash",
     color: "info",
     temperature: 0.3,
-    permissions: { edit: "deny", task: "deny", webfetch: "deny" },
+    permission: {
+      sandbox: "read",
+      tools: { edit: "deny", webfetch: "deny" },
+      bash: {},
+      delegation: { "*": "deny" },
+    },
     promptFile: "agents/code-explorer.agent.md",
   },
   {
@@ -78,7 +96,11 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "success",
     temperature: 0.3,
-    permissions: { question: "allow", webfetch: "deny" },
+    permission: {
+      sandbox: "workspace-write",
+      tools: { webfetch: "deny", "ui.question": "allow" },
+      bash: {},
+    },
     promptFile: "agents/code-reviewer.agent.md",
   },
   {
@@ -90,10 +112,11 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gemini-3.5-flash",
     color: "info",
     temperature: 0.3,
-    permissions: {
-      question: "allow",
-      edit: "allow",
-      task: { "*": "deny", "code-explorer": "allow" },
+    permission: {
+      sandbox: "workspace-write",
+      tools: { edit: "allow", "ui.question": "allow" },
+      bash: {},
+      delegation: { "*": "deny", "code-explorer": "allow" },
     },
     promptFile: "agents/codebase-indexer.agent.md",
   },
@@ -106,12 +129,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "warning",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "deny",
-      task: {
+    permission: {
+      sandbox: "read",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "deny",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "codebase-indexer": "allow",
         "code-explorer": "allow",
@@ -126,14 +153,18 @@ export const builtinAgents: AgentDefinition[] = [
     description:
       "Technical research specialist. Finds the best available solution via Context7 MCP and web search. Produces .ai/research.md with evidence, trade-offs, and recommendations.",
     mode: "subagent",
-    model: "github-copilot/claude-opus-4.7",
+    model: "github-copilot/gpt-5.5",
     color: "info",
     temperature: 0.5,
-    permissions: {
-      edit: "deny",
-      task: "deny",
-      websearch: "allow",
-      webfetch: "allow",
+    permission: {
+      sandbox: "read",
+      tools: {
+        edit: "deny",
+        websearch: "allow",
+        webfetch: "allow",
+      },
+      bash: {},
+      delegation: { "*": "deny" },
     },
     promptFile: "agents/research-agent.agent.md",
   },
@@ -146,13 +177,20 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "info",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "deny",
-      task: { "*": "deny", "code-explorer": "allow" },
-      external_directory: { "templates/*": "allow" },
+    permission: {
+      sandbox: "read",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "deny",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: { "*": "deny", "code-explorer": "allow" },
+      filesystem: {
+        readableRoots: ["templates/*"],
+        writableRoots: [],
+      },
     },
     promptFile: "agents/spec-driven.agent.md",
   },
@@ -165,13 +203,20 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "info",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: { "*": "deny", "code-explorer": "allow" },
-      external_directory: { "templates/*": "allow" },
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: { "*": "deny", "code-explorer": "allow" },
+      filesystem: {
+        readableRoots: ["templates/*"],
+        writableRoots: [],
+      },
     },
     promptFile: "agents/spec-driven-gpt.agent.md",
   },
@@ -184,13 +229,20 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/claude-sonnet-4.6",
     color: "info",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: { "*": "deny", "code-explorer": "allow" },
-      external_directory: { "templates/*": "allow" },
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: { "*": "deny", "code-explorer": "allow" },
+      filesystem: {
+        readableRoots: ["templates/*"],
+        writableRoots: [],
+      },
     },
     promptFile: "agents/spec-driven-sonnet.agent.md",
   },
@@ -203,12 +255,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/claude-opus-4.7",
     color: "info",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: {
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "spec-driven-gpt": "allow",
         "spec-driven-sonnet": "allow",
@@ -225,12 +281,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "warning",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "deny",
-      task: {
+    permission: {
+      sandbox: "read",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "deny",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "code-explorer": "allow",
         "codebase-indexer": "allow",
@@ -248,12 +308,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/gpt-5.5",
     color: "warning",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: {
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "code-explorer": "allow",
         "codebase-indexer": "allow",
@@ -271,12 +335,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/claude-sonnet-4.6",
     color: "warning",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: {
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "code-explorer": "allow",
         "codebase-indexer": "allow",
@@ -294,12 +362,16 @@ export const builtinAgents: AgentDefinition[] = [
     model: "github-copilot/claude-opus-4.7",
     color: "warning",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      websearch: "allow",
-      webfetch: "allow",
-      edit: "allow",
-      task: {
+    permission: {
+      sandbox: "workspace-write",
+      tools: {
+        websearch: "allow",
+        webfetch: "allow",
+        edit: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: {
         "*": "deny",
         "system-architect-gpt": "allow",
         "system-architect-sonnet": "allow",
@@ -314,14 +386,19 @@ export const builtinAgents: AgentDefinition[] = [
       "Guided .NET/C# mentorship: concept explanation, debugging help, code review, step-by-step coaching. Teaching agent, not a hands-off implementer.",
     mode: "all",
     color: "info",
-    model: "opencode/glm-5.1",
+    model: "github-copilot/claude-opus-4.7",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      write: "deny",
-      edit: "deny",
-      webfetch: "allow",
-      task: "deny",
+    // NOTE: legacy `write: "deny"` was dropped — `write` is not in the
+    // installed SDK schema.
+    permission: {
+      sandbox: "read",
+      tools: {
+        edit: "deny",
+        webfetch: "allow",
+        "ui.question": "allow",
+      },
+      bash: {},
+      delegation: { "*": "deny" },
     },
     promptFile: "agents/dotnet-mentor.agent.md",
   },
@@ -332,17 +409,21 @@ export const builtinAgents: AgentDefinition[] = [
       "Guided Go mentorship: concept explanation, debugging help, code review, step-by-step coaching. Teaching agent, not a hands-off implementer.",
     mode: "all",
     color: "info",
-    model: "opencode/glm-5.1",
+    model: "github-copilot/claude-opus-4.7",
     temperature: 0.4,
-    permissions: {
-      question: "allow",
-      bash: "deny",
-      write: "deny",
-      edit: "deny",
-      webfetch: "deny",
-      task: "deny",
-      todowrite: "deny",
-      todoread: "deny",
+    // NOTE: legacy `write: "deny"` and `todoread: "deny"` were dropped —
+    // neither key is in the installed SDK schema.
+    permission: {
+      sandbox: "read",
+      tools: {
+        bash: "deny",
+        edit: "deny",
+        webfetch: "deny",
+        "ui.question": "allow",
+        "ui.todowrite": "deny",
+      },
+      bash: {},
+      delegation: { "*": "deny" },
     },
     promptFile: "agents/go-mentor.agent.md",
   },
@@ -373,14 +454,14 @@ export const dualModeAgents: Array<{
   },
 ];
 
-export function getAgentById(id: string): AgentDefinition | undefined {
+export function getAgentById(id: string): AgentSpec | undefined {
   return builtinAgents.find((a) => a.id === id);
 }
 
-export function getPrimaryAgents(): AgentDefinition[] {
+export function getPrimaryAgents(): AgentSpec[] {
   return builtinAgents.filter((a) => a.mode === "primary");
 }
 
-export function getSubagents(): AgentDefinition[] {
+export function getSubagents(): AgentSpec[] {
   return builtinAgents.filter((a) => a.mode === "subagent");
 }

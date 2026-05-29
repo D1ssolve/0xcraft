@@ -103,12 +103,12 @@ describe("createConfigHandler", () => {
       config: mergeConfig({
         mcpServers: {
           context7: {
-            type: "remote",
+            transport: "http",
             url: "https://example.test/mcp",
             headers: { Authorization: "Bearer token" },
           },
           local_custom: {
-            type: "local",
+            transport: "stdio",
             command: ["node", "server.js"],
             env: { NODE_ENV: "test" },
           },
@@ -143,7 +143,7 @@ describe("createConfigHandler", () => {
 
     const inputConfig: Record<string, unknown> = { agent: {}, skills: { paths: [] }, mcp: {} };
     const handler = createConfigHandler({
-      config: mergeConfig({ customAgentPaths: [tmpDir] }),
+      config: mergeConfig({ customPaths: { agents: [tmpDir] } }),
       projectRoot: "/tmp/project",
       pkgRoot: process.cwd(),
     });
@@ -179,7 +179,7 @@ describe("createConfigHandler", () => {
     // Even when enabled, its MCP must NOT be registered here — only via explicit mcpServers config.
     const inputConfig: Record<string, unknown> = { agent: {}, skills: { paths: [] }, mcp: {} };
     const handler = createConfigHandler({
-      config: mergeConfig({ enabledSkills: ["nlm-skill"] }),
+      config: mergeConfig({ enabled: { skills: ["nlm-skill"] } }),
       projectRoot: "/tmp/project",
       pkgRoot: process.cwd(),
     });
@@ -195,9 +195,9 @@ describe("createConfigHandler", () => {
     const inputConfig: Record<string, unknown> = { agent: {}, skills: { paths: [] }, mcp: {} };
     const handler = createConfigHandler({
       config: mergeConfig({
-        enabledSkills: ["nlm-skill"],
+        enabled: { skills: ["nlm-skill"] },
         mcpServers: {
-          "notebooklm-mcp": { type: "local", command: ["uvx", "--from", "notebooklm-mcp-cli", "notebooklm-mcp"] },
+          "notebooklm-mcp": { transport: "stdio", command: ["uvx", "--from", "notebooklm-mcp-cli", "notebooklm-mcp"] },
         },
       }),
       projectRoot: "/tmp/project",

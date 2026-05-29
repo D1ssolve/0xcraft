@@ -10,7 +10,7 @@ import {
 } from "./claude-code-types";
 
 describe("Claude Code adapter artifact schemas", () => {
-  test("accepts first-release manifest without compatibility-gated displayName", () => {
+  test("accepts manifest without displayName", () => {
     const manifest = claudeCodeManifestSchema.parse({
       name: "0xcraft",
       description: "Agent operations plugin for Claude Code",
@@ -24,7 +24,7 @@ describe("Claude Code adapter artifact schemas", () => {
     expect(manifest.name).toBe("0xcraft");
   });
 
-  test("accepts compatibility-gated displayName when caller opts to emit it", () => {
+  test("accepts manifest with displayName", () => {
     expect(
       claudeCodeManifestSchema.parse({
         name: "0xcraft",
@@ -117,14 +117,14 @@ describe("Claude Code adapter artifact schemas", () => {
       hooks: {
         SessionStart: [
           {
-            matcher: { sessionStartType: "startup" },
-            handlers: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh", timeout: 5 }],
+            matcher: "startup|resume|clear",
+            hooks: [{ type: "command", command: "${CLAUDE_PLUGIN_ROOT}/scripts/guard.sh", timeout: 5 }],
           },
         ],
       },
     });
 
-    expect(hooks.hooks.SessionStart?.[0]?.handlers[0]?.type).toBe("command");
+    expect(hooks.hooks.SessionStart?.[0]?.hooks[0]?.type).toBe("command");
   });
 
   test("accepts valid local and remote MCP JSON", () => {

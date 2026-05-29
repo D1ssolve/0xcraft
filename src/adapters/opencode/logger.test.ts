@@ -15,17 +15,17 @@ describe("createOpenCodeLogger", () => {
     });
 
     logger.log({
-      level: "debug",
+      severity: "info",
       code: "opencode.root.worktree_directory_differ",
       message: "OpenCode worktree and directory differ; using worktree.",
-      extra: { worktree: "/repo", directory: "/repo/sub" },
+      details: { worktree: "/repo", directory: "/repo/sub" },
     });
 
     expect(events).toEqual([
       {
         body: {
           service: "0xcraft",
-          level: "debug",
+          level: "info",
           message: "OpenCode worktree and directory differ; using worktree.",
           extra: {
             code: "opencode.root.worktree_directory_differ",
@@ -48,11 +48,13 @@ describe("createOpenCodeLogger", () => {
       },
     });
 
-    expect(() => logger.log({
-      level: "warn",
-      code: "opencode.root.fallback.cwd",
-      message: "OpenCode root missing; using process.cwd().",
-    })).not.toThrow();
+    expect(() =>
+      logger.log({
+        severity: "warn",
+        code: "opencode.root.fallback.cwd",
+        message: "OpenCode root missing; using process.cwd().",
+      }),
+    ).not.toThrow();
   });
 
   test("does not throw when OpenCode log sink rejects", async () => {
@@ -67,7 +69,7 @@ describe("createOpenCodeLogger", () => {
     });
 
     logger.log({
-      level: "error",
+      severity: "error",
       code: "opencode.package_root.not_found",
       message: "Unable to resolve package root.",
     });

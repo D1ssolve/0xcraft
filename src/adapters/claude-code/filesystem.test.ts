@@ -113,4 +113,24 @@ describe("createClaudeCodeFilesystemWriter", () => {
 
     expect(() => writer.copyDirectory(path.join(sourceRoot, "skill"), "skills/example")).toThrow("symbolic links");
   });
+
+  test("writeFile honours sandbox-root containment and applies POSIX mode", () => {
+    const outputRoot = makeTempDir("0xcraft-claude-fs-writefile-");
+    const writer = createClaudeCodeFilesystemWriter({ outputRoot });
+
+    const emitted = writer.writeFile("hooks/sample.mjs", "#!/usr/bin/env bun\n", 0o755);
+    expect(emitted).toEqual(["hooks/sample.mjs"]);
+
+    const dest = path.join(outputRoot, "hooks", "sample.mjs");
+    expect(readText(dest)).toBe("#!/usr/bin/env bun\n");
+    // Best-effort mode assertion — POSIX only. Skip on Windows where chmod
+    // is silently dropped.
+    if (process.platform !== "win32") {
+      const mode = fs.statSync(dest).mode & 0o777;
+      expect(mode).toBe(0o755);
+    }
+
+    expect(() => writer.writeFile("../escape.mjs", "bad")).toThrow("outside output root");
+    expect(() => writer.writeFile("/tmp/escape.mjs", "bad")).toThrow("outside output root");
+  });
 });

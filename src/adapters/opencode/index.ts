@@ -3,12 +3,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import type { Hooks, Plugin } from "@opencode-ai/plugin";
 import { createConfigHandler } from "./hooks/config-handler";
-import { createAgentsGuardHook } from "./hooks/agents-guard";
-import { createCavemanBootstrapHook } from "./hooks/caveman-bootstrap";
-import { createGitWorktreeBootstrapHook } from "./hooks/git-worktree-bootstrap";
-import { mergeConfig, loadConfig, type ZeroxCraftConfig } from "../../core/config";
+import { createHookTransform } from "./hooks/hook-shim-builder";
+import { loadConfig } from "../../core/config";
 import { builtinHooks } from "../../core/hooks";
 import { createOpenCodeLogger } from "./logger";
+import { resolvePackageRoot as sharedResolvePackageRoot } from "../_shared/package-root";
 
 type MutableConfigShape = Record<string, unknown>;
 type PluginInput = Parameters<Plugin>[0];
@@ -31,10 +30,6 @@ function usableRoot(value: unknown): string | undefined {
   return path.resolve(trimmed);
 }
 
-function hasPackageAssets(root: string): boolean {
-  return fs.existsSync(path.join(root, "agents")) && fs.existsSync(path.join(root, "skills"));
-}
-
 export function resolvePluginRoot(input: PluginRootInput, client?: unknown): string {
   const logger = createOpenCodeLogger({ client });
   const worktree = usableRoot(input.worktree);
@@ -43,10 +38,10 @@ export function resolvePluginRoot(input: PluginRootInput, client?: unknown): str
   if (worktree) {
     if (directory && worktree !== directory) {
       logger.log({
-        level: "debug",
+        severity: "info",
         code: "opencode.root.worktree_directory_differ",
         message: "OpenCode worktree and directory differ; using worktree.",
-        extra: { worktree, directory },
+        details: { worktree, directory },
       });
     }
     return worktree;
@@ -56,37 +51,43 @@ export function resolvePluginRoot(input: PluginRootInput, client?: unknown): str
 
   const cwd = process.cwd();
   logger.log({
-    level: "warn",
+    severity: "warn",
     code: "opencode.root.fallback.cwd",
     message: "OpenCode root missing; using process.cwd().",
-    extra: { cwd },
+    details: { cwd },
   });
   return cwd;
 }
 
+/**
+ * Resolve the 0xcraft package root containing `agents/` and `skills/` asset
+ * directories. Delegates to `_shared/package-root.resolvePackageRoot` and
+ * logs a warning via the OpenCode client logger when no candidate matches.
+ *
+ * Kept as a thin re-export so existing callers (and tests) keep the same
+ * signature including the `client` logger arg.
+ */
 export function resolvePackageRoot(args: { startDir: string; cwd?: string; client?: unknown }): string {
-  const logger = createOpenCodeLogger({ client: args.client });
   const startDir = path.resolve(args.startDir);
   const cwd = path.resolve(args.cwd ?? process.cwd());
-  let current = startDir;
-  for (let i = 0; i < 10; i++) {
-    if (hasPackageAssets(current)) {
-      return current;
+  const resolved = sharedResolvePackageRoot({ startDir, cwd });
+
+  // Shared helper falls back to `startDir` when no assets are found, so a
+  // result equal to `startDir` without assets indicates a lookup miss.
+  if (resolved === startDir) {
+    const startHasAssets =
+      fs.existsSync(path.join(startDir, "agents")) && fs.existsSync(path.join(startDir, "skills"));
+    if (!startHasAssets) {
+      const logger = createOpenCodeLogger({ client: args.client });
+      logger.log({
+        severity: "warn",
+        code: "opencode.package_root.not_found",
+        message: "Unable to resolve 0xcraft package root with agents/ and skills/ assets.",
+        details: { startDir, cwd },
+      });
     }
-    const parent = path.dirname(current);
-    if (parent === current) break;
-    current = parent;
   }
-
-  if (hasPackageAssets(cwd)) return cwd;
-
-  logger.log({
-    level: "warn",
-    code: "opencode.package_root.not_found",
-    message: "Unable to resolve 0xcraft package root with agents/ and skills/ assets.",
-    extra: { startDir, cwd },
-  });
-  return startDir;
+  return resolved;
 }
 
 /**
@@ -105,106 +106,41 @@ export async function createPluginHooks(input: PluginInput, options: CreatePlugi
     client: input.client,
   });
 
-  // Load config from walked project configs + user config
-  const { config: rawConfig } = loadConfig(projectRoot, options.homeDir, {
-    diagnosticSink: createOpenCodeLogger({ client: input.client }).log,
+  // Load config from walked project configs + user config (harness=opencode).
+  const logger = createOpenCodeLogger({ client: input.client });
+  const { config } = loadConfig({
+    harness: "opencode",
+    projectRoot,
+    homeDir: options.homeDir,
+    diagnosticSink: (d) => logger.log(d),
   });
-  const userConfig: Partial<ZeroxCraftConfig> = rawConfig as Partial<ZeroxCraftConfig>;
-  const config = mergeConfig(userConfig);
 
-  // Determine which hooks are active (respects both boolean flags AND disabledHooks)
-  const enabledHooks = builtinHooks.filter(
-    (h) => !config.disabledHooks.includes(h.id)
-  );
-  const isHookActive = (hookId: string): boolean =>
-    enabledHooks.some((h) => h.id === hookId);
+  // Determine which hooks are active purely from `disabled.hooks`.
+  const enabledHooks = builtinHooks.filter((h) => !config.disabled.hooks.includes(h.id));
 
-  // Build the hooks object
   const hooks: Hooks = {};
 
-  // Config hook — registers agents, skills, MCPs
+  // Config hook — registers agents, skills, MCPs.
   const configHandler = createConfigHandler({ config, projectRoot, pkgRoot: packageRoot });
   hooks.config = async (inputConfig) => {
     await configHandler(inputConfig as unknown as MutableConfigShape);
   };
 
-  // Message transform hook — injects bootstrap prompts on first message
-  const agentsGuardActive = config.agentsGuardEnabled && isHookActive("agents-guard");
-  const cavemanActive = config.cavemanBootstrapEnabled && isHookActive("caveman-bootstrap");
-  const worktreeActive = config.gitWorktreeBootstrapEnabled && isHookActive("git-worktree-bootstrap");
-
-  interface MessagePart {
-    type: string;
-    text?: string;
-    [key: string]: unknown;
-  }
-
-  interface OcMessage {
-    info?: { role?: string; [key: string]: unknown };
-    parts?: MessagePart[];
-    [key: string]: unknown;
-  }
-
-  interface TransformOutput {
-    messages?: OcMessage[];
-    [key: string]: unknown;
-  }
-
-  const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null;
-
-  if (agentsGuardActive || cavemanActive || worktreeActive) {
-    hooks["experimental.chat.messages.transform"] = async (_input: unknown, output: unknown) => {
-      if (!isRecord(output)) return;
-      const messages = (output as TransformOutput).messages;
-      if (!Array.isArray(messages) || messages.length === 0) return;
-
-      const firstUser = messages.find((m): m is OcMessage =>
-        isRecord(m) && isRecord(m.info) && m.info.role === "user"
-      );
-      if (!firstUser) return;
-      if (!Array.isArray(firstUser.parts) || firstUser.parts.length === 0) return;
-
-      // Check if already injected by any of our markers
-      const alreadyInjected = firstUser.parts.some(
-        (p) => isRecord(p) && p.type === "text" && typeof p.text === "string" && (
-          p.text.includes("AGENTS_GUARD_INJECTED") ||
-          p.text.includes("CAVEMAN_BOOTSTRAP_INJECTED") ||
-          p.text.includes("GIT_WORKTREE_BOOTSTRAP_INJECTED")
-        )
-      );
-      if (alreadyInjected) return;
-
-      const bootstrapParts: string[] = [];
-
-      if (agentsGuardActive) {
-        const agentsGuard = createAgentsGuardHook({ projectRoot });
-        const guardText = agentsGuard.buildBootstrap();
-        if (guardText) bootstrapParts.push(guardText);
-      }
-
-      if (cavemanActive) {
-        const caveman = createCavemanBootstrapHook();
-        const cavemanText = caveman.buildBootstrap();
-        if (cavemanText) bootstrapParts.push(cavemanText);
-      }
-
-      if (worktreeActive) {
-        const worktreeHook = createGitWorktreeBootstrapHook({ projectRoot });
-        const worktreeText = worktreeHook.buildBootstrap();
-        if (worktreeText) bootstrapParts.push(worktreeText);
-      }
-
-      if (bootstrapParts.length > 0) {
-        const combinedBootstrap = bootstrapParts.join("\n\n");
-        const referencePart = firstUser.parts[0];
-        const basePart = isRecord(referencePart) ? referencePart : {};
-        firstUser.parts.unshift({ ...basePart, type: "text", text: combinedBootstrap });
-      }
-    };
+  // Message transform hook — injects bootstrap prompts on first user
+  // message. Only registered when at least one bootstrap hook is enabled.
+  if (enabledHooks.length > 0) {
+    hooks["experimental.chat.messages.transform"] = createHookTransform({
+      hooks: enabledHooks,
+      projectRoot,
+    });
   }
 
   return hooks;
 }
 
 export const createPlugin: Plugin = async (input) => createPluginHooks(input);
+
+/* ------------------------------------------------------------------ */
+/*  Batch 4 — canonical build() entry (ADR §6)                         */
+/* ------------------------------------------------------------------ */
+export { build, type OpenCodeArtifact } from "./build";

@@ -69,69 +69,6 @@ describe("runClaudePluginValidate", () => {
     });
   });
 
-  test("warns for unknown Claude Code validation capability by default", async () => {
-    const runner: ClaudeProcessRunner = async () => ({ exitCode: 0, stdout: "", stderr: "" });
-
-    const result = await runClaudePluginValidate({
-      pluginDir: "/tmp/plugin",
-      runner,
-      claudeCode: { version: "2.1.120", capabilities: { pluginValidate: "unknown" } },
-    });
-
-    expect(result.ok).toBe(true);
-    expect(result.status).toBe("warning");
-    expect(result.diagnostics[0]).toMatchObject({
-      severity: "warning",
-      code: "claude.validate.capability_unknown",
-    });
-  });
-
-  test("fails for unsupported Claude Code validation capability during strict checks", async () => {
-    let called = false;
-    const runner: ClaudeProcessRunner = async () => {
-      called = true;
-      return { exitCode: 0, stdout: "", stderr: "" };
-    };
-
-    const result = await runClaudePluginValidate({
-      pluginDir: "/tmp/plugin",
-      strict: true,
-      runner,
-      claudeCode: { version: "2.1.120", capabilities: { pluginValidate: "unsupported" } },
-    });
-
-    expect(called).toBe(false);
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe("failed");
-    expect(result.diagnostics[0]).toMatchObject({
-      severity: "error",
-      code: "claude.validate.capability_unsupported",
-    });
-  });
-
-  test("fails for unknown Claude Code validation capability when caller requires validation", async () => {
-    let called = false;
-    const runner: ClaudeProcessRunner = async () => {
-      called = true;
-      return { exitCode: 0, stdout: "", stderr: "" };
-    };
-
-    const result = await runClaudePluginValidate({
-      pluginDir: "/tmp/plugin",
-      failOnUnsupportedCapability: true,
-      runner,
-      claudeCode: { version: "2.1.120", capabilities: { pluginValidate: "unknown" } },
-    });
-
-    expect(called).toBe(false);
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe("failed");
-    expect(result.diagnostics[0]).toMatchObject({
-      severity: "error",
-      code: "claude.validate.capability_unknown",
-    });
-  });
-
   test("returns sanitized stdout and stderr summary for non-zero exit", async () => {
     const runner: ClaudeProcessRunner = async () => ({
       exitCode: 2,

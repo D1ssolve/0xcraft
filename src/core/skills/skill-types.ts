@@ -17,7 +17,15 @@ export interface SkillDefinition {
   description: string;
   /** Path to SKILL.md relative to package root */
   skillFile: string;
-  /** Optional MCP servers this skill requires (started on demand) */
+  /**
+   * Optional MCP servers this skill requires (started on demand).
+   *
+   * Per-skill MCP scoping support varies by harness:
+   *   - OpenCode:     native    — adapter wires servers into `inputConfig.mcp`
+   *   - Claude Code:  degraded  — emitted at project scope (not per-skill)
+   *   - Codex:        dropped   — Codex has no MCP runtime; entries are ignored
+   *                              (a `warn` diagnostic is emitted by that adapter)
+   */
   mcpServers?: McpServerConfig[];
   /** Tags for categorization and search */
   tags: string[];

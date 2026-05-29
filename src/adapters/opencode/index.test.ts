@@ -73,7 +73,7 @@ describe("OpenCode adapter root resolution", () => {
     expect(resolved).toBe(path.resolve(worktree));
     expect(events[0]?.body).toEqual({
       service: "0xcraft",
-      level: "debug",
+      level: "info",
       message: "OpenCode worktree and directory differ; using worktree.",
       extra: {
         code: "opencode.root.worktree_directory_differ",
@@ -169,9 +169,7 @@ describe("createPlugin", () => {
   test("returns only config hook when all bootstrap hooks are inactive", async () => {
     const projectRoot = makeTempDir("0xcraft-disabled-bootstrap-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: false,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "caveman-bootstrap", "git-worktree-bootstrap"] }
     });
 
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
@@ -184,10 +182,7 @@ describe("createPlugin", () => {
   test("disabledHooks suppresses active bootstrap hook registration", async () => {
     const projectRoot = makeTempDir("0xcraft-disabled-hooks-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: true,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: true,
-      disabledHooks: ["agents-guard", "caveman-bootstrap", "git-worktree-bootstrap"],
+      disabled: { hooks: ["agents-guard", "caveman-bootstrap", "git-worktree-bootstrap"] }
     });
 
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
@@ -198,9 +193,7 @@ describe("createPlugin", () => {
   test("returns config and transform hooks when at least one bootstrap remains active", async () => {
     const projectRoot = makeTempDir("0xcraft-enabled-combo-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "git-worktree-bootstrap"] }
     });
 
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
@@ -213,9 +206,7 @@ describe("createPlugin", () => {
   test("absent AGENTS.md plus caveman enabled prepends expected markers in one text part", async () => {
     const projectRoot = makeTempDir("0xcraft-bootstrap-inject-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: true,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["git-worktree-bootstrap"] }
     });
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
     const transform = hooks["experimental.chat.messages.transform"] as (input: unknown, output: Record<string, unknown>) => Promise<void>;
@@ -243,9 +234,7 @@ describe("createPlugin", () => {
   test("existing marker in first user text part prevents duplicate injection and preserves order", async () => {
     const projectRoot = makeTempDir("0xcraft-bootstrap-dedupe-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: true,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["git-worktree-bootstrap"] }
     });
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
     const transform = hooks["experimental.chat.messages.transform"] as (input: unknown, output: Record<string, unknown>) => Promise<void>;
@@ -263,9 +252,7 @@ describe("createPlugin", () => {
   test("marker scan only checks first user message", async () => {
     const projectRoot = makeTempDir("0xcraft-bootstrap-first-user-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "git-worktree-bootstrap"] }
     });
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
     const transform = hooks["experimental.chat.messages.transform"] as (input: unknown, output: Record<string, unknown>) => Promise<void>;
@@ -285,9 +272,7 @@ describe("createPlugin", () => {
   test("malformed transform outputs do not throw", async () => {
     const projectRoot = makeTempDir("0xcraft-bootstrap-malformed-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: true,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "git-worktree-bootstrap"] }
     });
     const hooks = await createIsolatedPlugin({ worktree: projectRoot });
     const transform = hooks["experimental.chat.messages.transform"] as (input: unknown, output: unknown) => Promise<void>;
@@ -306,9 +291,7 @@ describe("createPlugin", () => {
     const worktree = makeTempDir("0xcraft-root-diag-worktree-");
     const directory = makeTempDir("0xcraft-root-diag-directory-");
     writeLocalConfig(worktree, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: false,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "caveman-bootstrap", "git-worktree-bootstrap"] }
     });
 
     const hooks = await createIsolatedPlugin({ worktree, directory, client });
@@ -320,9 +303,7 @@ describe("createPlugin", () => {
   test("logger failure does not prevent returned hooks", async () => {
     const projectRoot = makeTempDir("0xcraft-logger-failure-");
     writeLocalConfig(projectRoot, {
-      agentsGuardEnabled: false,
-      cavemanBootstrapEnabled: false,
-      gitWorktreeBootstrapEnabled: false,
+      disabled: { hooks: ["agents-guard", "caveman-bootstrap", "git-worktree-bootstrap"] }
     });
     const client = { app: { log() { throw new Error("sink failed"); } } };
 

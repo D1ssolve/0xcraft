@@ -40,7 +40,7 @@ function makeDependencies(calls: string[]): ClaudeCodePluginGeneratorDependencie
     generateHooks(options) {
       calls.push("hooks");
       options.writer.writeJson("hooks/hooks.json", { description: "Mock hooks", hooks: {} });
-      return { emittedFiles: ["hooks/hooks.json"], diagnostics: [] };
+      return { emittedFiles: ["hooks/hooks.json"], diagnostics: [], scriptFiles: [] };
     },
     generateMcp(options) {
       calls.push("mcp");
@@ -88,8 +88,8 @@ describe("generateClaudeCodePlugin", () => {
       outputPath,
       force: true,
       config: {
-        enabledAgents: ["sample"],
-        disabledSkills: [],
+        
+        disabled: { skills: [] },
         mcpServers: {},
       },
       settings: { agent: "mock-agent" },
@@ -140,33 +140,21 @@ describe("generateClaudeCodePlugin", () => {
     });
   });
 
-  test("returns compatibility warnings and optional external validation result", async () => {
+  test("returns optional external validation result", async () => {
     const packageRoot = makePackageRoot();
     const calls: string[] = [];
 
     const result = await generateClaudeCodePlugin({
       packageRoot,
-      projectRoot: makeTempDir("0xcraft-claude-plugin-project-compat-"),
-      outputPath: path.join(makeTempDir("0xcraft-claude-plugin-output-compat-"), "plugin"),
+      projectRoot: makeTempDir("0xcraft-claude-plugin-project-extval-"),
+      outputPath: path.join(makeTempDir("0xcraft-claude-plugin-output-extval-"), "plugin"),
       force: true,
       validateExternal: true,
-      compatibility: {
-        version: "2.1.142",
-        capabilities: {
-          pluginDir: "supported",
-          reloadPlugins: "unknown",
-          pluginValidate: "unknown",
-        },
-      },
       externalValidationRunner: async () => ({ exitCode: 0 }),
       dependencies: makeDependencies(calls),
     });
 
     expect(result.ok).toBe(true);
-    expect(result.compatibilityWarnings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: "claude.compat.reload_plugins_unknown", severity: "warning" }),
-      expect.objectContaining({ code: "claude.compat.display_name_unsupported", severity: "warning" }),
-    ]));
     expect(result.externalValidation?.ok).toBe(true);
     expect(result.externalValidation?.command.args).toContain("plugin");
   });
@@ -189,7 +177,7 @@ describe("generateClaudeCodePlugin", () => {
         color: "secondary",
         temperature: 0.3,
         promptFile: "agents/sample.agent.md",
-        permissions: { edit: "deny" },
+        permission: { sandbox: "workspace-write", tools: { edit: "deny" }, bash: {} },
       }],
       builtInSkills: [{
         id: "sample-skill",
@@ -201,8 +189,8 @@ describe("generateClaudeCodePlugin", () => {
       builtInHooks: [],
       builtInMcpServers: [],
       config: {
-        enabledAgents: ["sample"],
-        enabledSkills: ["sample-skill"],
+        
+        enabled: { skills: ["sample-skill"] },
         mcpServers: {},
       },
     });
@@ -237,7 +225,7 @@ describe("generateClaudeCodePlugin", () => {
         color: "secondary",
         temperature: 0.3,
         promptFile: "agents/sample.agent.md",
-        permissions: { edit: "deny" },
+        permission: { sandbox: "workspace-write", tools: { edit: "deny" }, bash: {} },
       }],
       builtInSkills: [{
         id: "sample-skill",
@@ -249,8 +237,8 @@ describe("generateClaudeCodePlugin", () => {
       builtInHooks: [],
       builtInMcpServers: [],
       config: {
-        enabledAgents: ["sample"],
-        enabledSkills: ["sample-skill"],
+        
+        enabled: { skills: ["sample-skill"] },
         mcpServers: {},
       },
     });
@@ -280,7 +268,7 @@ describe("generateClaudeCodePlugin", () => {
         color: "secondary",
         temperature: 0.3,
         promptFile: "agents/sample.agent.md",
-        permissions: { edit: "deny" },
+        permission: { sandbox: "workspace-write", tools: { edit: "deny" }, bash: {} },
       }],
       builtInSkills: [{
         id: "sample-skill",
@@ -292,8 +280,8 @@ describe("generateClaudeCodePlugin", () => {
       builtInHooks: [],
       builtInMcpServers: [],
       config: {
-        enabledAgents: ["sample"],
-        enabledSkills: ["sample-skill"],
+        
+        enabled: { skills: ["sample-skill"] },
         mcpServers: {},
       },
     })).rejects.toThrow("Output directory already exists and is not empty");
@@ -321,7 +309,7 @@ describe("generateClaudeCodePlugin", () => {
         settings: false,
       },
       config: {
-        enabledSkills: [
+        enabled: { skills: [
           "chatgpt-linkedin-skill",
           "efcore-postgres-enum",
           "implementation-patterns",
@@ -330,7 +318,7 @@ describe("generateClaudeCodePlugin", () => {
           "migrate-dotnet9-to-dotnet10",
           "nlm-skill",
           "topaz-js",
-        ],
+        ] },
       },
     });
 
@@ -339,5 +327,54 @@ describe("generateClaudeCodePlugin", () => {
     ]));
     expect(result.localValidation.ok).toBe(true);
     expect(result.ok).toBe(true);
+  });
+
+  test("writes builtin hook shim scripts as executable files into the plugin output", async () => {
+    const packageRoot = makePackageRoot();
+    const outputPath = path.join(makeTempDir("0xcraft-claude-plugin-hookscripts-"), "plugin");
+
+    const result = await generateClaudeCodePlugin({
+      packageRoot,
+      projectRoot: makeTempDir("0xcraft-claude-plugin-hookscripts-project-"),
+      outputPath,
+      force: true,
+      builtInAgents: [],
+      builtInSkills: [],
+      builtInMcpServers: [],
+      // builtInHooks defaults to all three bootstrap hooks
+    });
+
+    expect(result.ok).toBe(true);
+
+    const expectedScripts = [
+      "hooks/agents-guard.mjs",
+      "hooks/caveman-bootstrap.mjs",
+      "hooks/git-worktree-bootstrap.mjs",
+    ];
+    for (const rel of expectedScripts) {
+      const fullPath = path.join(outputPath, rel);
+      expect(fs.existsSync(fullPath)).toBe(true);
+      const content = fs.readFileSync(fullPath, "utf8");
+      expect(content.startsWith("#!/usr/bin/env bun\n")).toBe(true);
+      expect(result.emittedFiles).toContain(rel);
+      if (process.platform !== "win32") {
+        const mode = fs.statSync(fullPath).mode & 0o777;
+        // Owner must have execute permission.
+        expect(mode & 0o100).toBe(0o100);
+      }
+    }
+
+    // hooks.json references the scripts.
+    const hooksJson = JSON.parse(
+      fs.readFileSync(path.join(outputPath, "hooks", "hooks.json"), "utf8"),
+    ) as { hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(Object.keys(hooksJson.hooks).sort()).toEqual(["SessionStart", "UserPromptSubmit"]);
+    const allCommands = Object.values(hooksJson.hooks)
+      .flat()
+      .flatMap((group) => group.hooks.map((h) => h.command));
+    for (const cmd of allCommands) {
+      expect(cmd).toContain("${CLAUDE_PLUGIN_ROOT}");
+      expect(cmd).toMatch(/^bun /);
+    }
   });
 });

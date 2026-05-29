@@ -1,35 +1,49 @@
-import fs from "fs";
-import path from "path";
-import os from "os";
-
 /**
- * JSONC config loader for 0xcraft.
+ * Harness-aware 0xcraft config loader — nested-only (T-12.8).
  *
- * Walks config files from project root up to $HOME, merges onto user config,
- * then merges onto defaults. Supports JSONC (JSON with comments and trailing commas).
+ * Merge order (right wins):
+ *   default → globalUnified → globalHarness → localUnified → localHarness
+ *   → cliOverrides
  *
- * Config search order (closest wins):
- * 1. Walked: <pwd up to $HOME>/.opencode/0xcraft.json[c]
- * 2. User: ~/.config/opencode/0xcraft.json[c]
- * 3. Defaults from ZeroxCraftConfig
+ * Per-harness path selection — see `getConfigPaths`:
+ *   opencode    : globalUnified, ~/.config/opencode/0xcraft.{json,jsonc},
+ *                 <proj>/.0xcraft/config.{json,jsonc} or <proj>/0xcraft.{json,jsonc},
+ *                 <proj>/.opencode/0xcraft.{json,jsonc}
+ *   claude-code : globalUnified, ~/.claude/0xcraft.{json,jsonc} or ~/.config/claude/0xcraft.{json,jsonc},
+ *                 localUnified, <proj>/.claude/0xcraft.{json,jsonc}
+ *   codex       : globalUnified, ~/.codex/0xcraft.{json,jsonc},
+ *                 localUnified, <proj>/.codex/0xcraft.{json,jsonc}
+ *
+ * globalUnified = ~/.config/0xcraft/config.{json,jsonc}
+ * localUnified  = <proj>/.0xcraft/config.{json,jsonc} or <proj>/0xcraft.{json,jsonc}
+ *
+ * Both `.json` and `.jsonc` are probed at every candidate location.
+ *
+ * Diagnostics use the canonical `Diagnostic` shape. No throws. Strict
+ * Zod (`.strict()` on every object) rejects legacy flat keys with
+ * `unrecognized_keys` issues that surface as `config.validation.failed`
+ * diagnostics.
  */
 
-/** Strip JSONC comments and trailing commas for safe JSON.parse */
-export type DiagnosticLevel = "debug" | "info" | "warn" | "error";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-export interface DiagnosticEvent {
-  level: DiagnosticLevel;
-  code: string;
-  message: string;
-  extra?: Record<string, unknown>;
-}
+import type { Diagnostic } from "../diagnostics/diagnostic";
+import {
+  defaultConfig,
+  mergeConfig,
+  type PlatformId,
+  type ZeroxCraftConfig,
+  type PartialZeroxCraftConfig,
+} from "./config-types";
+import { zeroxCraftConfigSchema } from "./config-schema";
 
-export type DiagnosticSink = (event: DiagnosticEvent) => void;
+/* ------------------------------------------------------------------ */
+/*  JSONC parser                                                        */
+/* ------------------------------------------------------------------ */
 
-export interface LoadConfigOptions {
-  diagnosticSink?: DiagnosticSink;
-}
-
+/** Strip JSONC comments and trailing commas for safe `JSON.parse`. */
 export function stripJsonc(input: string): string {
   let result = "";
   let inString = false;
@@ -40,13 +54,11 @@ export function stripJsonc(input: string): string {
 
     // String literal — pass through verbatim
     if (ch === '"') {
-      // Check for escaped quote (but not an escaped backslash before the quote)
       if (inString) {
         let backslashes = 0;
         let k = i - 1;
         while (k >= 0 && input[k] === "\\") { backslashes++; k--; }
         if (backslashes % 2 === 1) {
-          // Odd number of backslashes → quote is escaped, stay in string
           result += ch;
           i++;
           continue;
@@ -76,18 +88,18 @@ export function stripJsonc(input: string): string {
       while (i < input.length && !(input[i] === "*" && i + 1 < input.length && input[i + 1] === "/")) {
         i++;
       }
-      i += 2; // skip */
+      i += 2;
       continue;
     }
 
-    // Trailing comma: skip if next non-whitespace is } or ]
+    // Trailing comma
     if (ch === ",") {
       let j = i + 1;
       while (j < input.length && (input[j] === " " || input[j] === "\t" || input[j] === "\n" || input[j] === "\r")) {
         j++;
       }
       if (j < input.length && (input[j] === "}" || input[j] === "]")) {
-        i++; // skip the comma
+        i++;
         continue;
       }
     }
@@ -99,215 +111,343 @@ export function stripJsonc(input: string): string {
   return result;
 }
 
-/** Parse JSONC string to object */
+/** Parse JSONC string to object. */
 export function parseJsonc(input: string): Record<string, unknown> {
-  const stripped = stripJsonc(input);
-  return JSON.parse(stripped);
+  return JSON.parse(stripJsonc(input));
 }
 
-function sanitizeConfigErrorMessage(err: unknown): string {
+/* ------------------------------------------------------------------ */
+/*  Detail sanitization                                                 */
+/* ------------------------------------------------------------------ */
+
+const SECRET_KEY_RE = /token|secret|password|authorization|cookie|key/i;
+
+/**
+ * Recursively redact diagnostic-detail values whose keys look secret-bearing.
+ * Pure: never throws, returns a fresh object.
+ */
+export function sanitizeDetails(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeDetails);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SECRET_KEY_RE.test(k)) {
+        out[k] = "[redacted]";
+      } else {
+        out[k] = sanitizeDetails(v);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Path selection                                                      */
+/* ------------------------------------------------------------------ */
+
+export type ConfigSourceKind =
+  | "global-unified"
+  | "global-harness"
+  | "local-unified"
+  | "local-harness";
+
+export interface ConfigPathCandidate {
+  /** Path stem without extension (we append `.json` / `.jsonc`). */
+  stem: string;
+  kind: ConfigSourceKind;
+}
+
+export function getConfigPaths(
+  harness: PlatformId,
+  projectRoot: string,
+  homeDir: string,
+): ConfigPathCandidate[] {
+  const globalUnified: ConfigPathCandidate[] = [
+    { stem: path.join(homeDir, ".config", "0xcraft", "config"), kind: "global-unified" },
+  ];
+  const localUnified: ConfigPathCandidate[] = [
+    { stem: path.join(projectRoot, ".0xcraft", "config"), kind: "local-unified" },
+    { stem: path.join(projectRoot, "0xcraft"), kind: "local-unified" },
+  ];
+
+  let globalHarness: ConfigPathCandidate[];
+  let localHarness: ConfigPathCandidate[];
+
+  switch (harness) {
+    case "opencode":
+      globalHarness = [
+        { stem: path.join(homeDir, ".config", "opencode", "0xcraft"), kind: "global-harness" },
+      ];
+      localHarness = [
+        { stem: path.join(projectRoot, ".opencode", "0xcraft"), kind: "local-harness" },
+      ];
+      break;
+    case "claude-code":
+      globalHarness = [
+        { stem: path.join(homeDir, ".claude", "0xcraft"), kind: "global-harness" },
+        { stem: path.join(homeDir, ".config", "claude", "0xcraft"), kind: "global-harness" },
+      ];
+      localHarness = [
+        { stem: path.join(projectRoot, ".claude", "0xcraft"), kind: "local-harness" },
+      ];
+      break;
+    case "codex":
+      globalHarness = [
+        { stem: path.join(homeDir, ".codex", "0xcraft"), kind: "global-harness" },
+      ];
+      localHarness = [
+        { stem: path.join(projectRoot, ".codex", "0xcraft"), kind: "local-harness" },
+      ];
+      break;
+  }
+
+  return [...globalUnified, ...globalHarness, ...localUnified, ...localHarness];
+}
+
+/* ------------------------------------------------------------------ */
+/*  Env interpolation                                                   */
+/* ------------------------------------------------------------------ */
+
+const ENV_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
+
+/**
+ * Recursively interpolate `${VAR}` and `${VAR:-fallback}` placeholders
+ * inside string values. Records every unresolved `${VAR}` (no fallback)
+ * once as a `config.env.missing` diagnostic.
+ */
+function interpolateEnv(
+  value: unknown,
+  env: NodeJS.ProcessEnv,
+  diagnostics: Diagnostic[],
+  missing: Set<string>,
+): unknown {
+  if (typeof value === "string") {
+    return value.replace(ENV_RE, (_match, name: string, fallback?: string) => {
+      const resolved = env[name];
+      if (resolved !== undefined) return resolved;
+      if (fallback !== undefined) return fallback;
+      if (!missing.has(name)) {
+        missing.add(name);
+        diagnostics.push({
+          severity: "warn",
+          code: "config.env.missing",
+          message: `Environment variable "${name}" referenced in config is not set.`,
+          details: { variable: name },
+        });
+      }
+      return "";
+    });
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => interpolateEnv(v, env, diagnostics, missing));
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = interpolateEnv(v, env, diagnostics, missing);
+    }
+    return out;
+  }
+  return value;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Candidate reader                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Sanitize parser error messages — strip quoted content. */
+function sanitizeError(err: unknown): string {
   const errorName = err instanceof Error && err.name ? err.name : undefined;
   const rawMessage = err instanceof Error ? err.message : String(err);
-  const redactedMessage = rawMessage.replace(/(["'`])(?:\\.|(?!\1)[\s\S])*\1/g, (_match, quote: string) => {
+  const redacted = rawMessage.replace(/(["'`])(?:\\.|(?!\1)[\s\S])*\1/g, (_m, quote: string) => {
     return `${quote}[redacted]${quote}`;
   });
-
-  if (!errorName || redactedMessage.startsWith(`${errorName}:`)) {
-    return redactedMessage;
-  }
-
-  return `${errorName}: ${redactedMessage}`;
+  if (!errorName || redacted.startsWith(`${errorName}:`)) return redacted;
+  return `${errorName}: ${redacted}`;
 }
 
-function reportConfigParseFailure(
-  fullPath: string,
-  err: unknown,
-  diagnosticSink?: DiagnosticSink,
-): void {
-  const errorMessage = sanitizeConfigErrorMessage(err);
-  const message = `Failed to parse config file "${fullPath}"`;
-
-  if (diagnosticSink) {
-    diagnosticSink({
-      level: "warn",
-      code: "config.parse.failed",
-      message,
-      extra: {
-        path: fullPath,
-        errorMessage,
-      },
-    });
-    return;
-  }
-
-  console.warn(`[0xcraft] ${message}: ${errorMessage}`);
-}
-
-/** Read and parse a JSONC file, returning null if it doesn't exist */
-function readConfigFile(filePath: string, options: LoadConfigOptions = {}): Record<string, unknown> | null {
+function readCandidate(
+  candidate: ConfigPathCandidate,
+  diagnostics: Diagnostic[],
+): { config: Record<string, unknown>; sourcePath: string } | null {
   for (const ext of [".jsonc", ".json"]) {
-    const fullPath = filePath + ext;
+    const fullPath = candidate.stem + ext;
+    let exists: boolean;
     try {
-      if (fs.existsSync(fullPath)) {
-        const content = fs.readFileSync(fullPath, "utf-8");
-        return parseJsonc(content);
-      }
+      exists = fs.existsSync(fullPath);
     } catch (err) {
-      reportConfigParseFailure(fullPath, err, options.diagnosticSink);
+      diagnostics.push({
+        severity: "warn",
+        code: "config.path.unreadable",
+        message: `Cannot stat config path "${fullPath}": ${sanitizeError(err)}`,
+        details: { path: fullPath, kind: candidate.kind },
+      });
+      continue;
+    }
+    if (!exists) continue;
+    try {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      return { config: parseJsonc(content), sourcePath: fullPath };
+    } catch (err) {
+      // Distinguish unreadable file from parse failure.
+      if (err instanceof Error && /ENOENT|EACCES|EISDIR|EPERM/.test(err.message)) {
+        diagnostics.push({
+          severity: "warn",
+          code: "config.path.unreadable",
+          message: `Cannot read config file "${fullPath}": ${sanitizeError(err)}`,
+          details: { path: fullPath, kind: candidate.kind },
+        });
+      } else {
+        diagnostics.push({
+          severity: "warn",
+          code: "config.parse.failed",
+          message: `Failed to parse config file "${fullPath}": ${sanitizeError(err)}`,
+          details: { path: fullPath, kind: candidate.kind },
+        });
+      }
+      return null;
     }
   }
   return null;
 }
 
-/**
- * Walk from startDir up to stopDir, collecting 0xcraft config files.
- * Closer configs override farther ones.
- */
-function walkConfigs(startDir: string, stopDir: string, options: LoadConfigOptions = {}): Record<string, unknown>[] {
-  const configs: Record<string, unknown>[] = [];
-  let current = startDir;
+/* ------------------------------------------------------------------ */
+/*  loadConfig — public, nested-only                                    */
+/* ------------------------------------------------------------------ */
 
-  while (current && current !== path.dirname(current)) {
-    const configPath = path.join(current, ".opencode", "0xcraft");
-    const config = readConfigFile(configPath, options);
-    if (config) {
-      configs.push(config);
-    }
-    if (current === stopDir) break;
-    current = path.dirname(current);
-  }
-
-  return configs;
+export interface LoadConfigOptions {
+  harness: PlatformId;
+  projectRoot?: string;
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
+  diagnosticSink?: (d: Diagnostic) => void;
+  /** Optional CLI overrides applied last (highest priority). */
+  cliOverrides?: PartialZeroxCraftConfig;
 }
 
-/** Deep merge two objects. Arrays are concatenated and deduplicated. */
-function deepMerge(
+export interface LoadConfigResult {
+  /** Canonical nested shape (spec §3, ADR §2). */
+  config: ZeroxCraftConfig;
+  diagnostics: Diagnostic[];
+  sources: string[];
+}
+
+/**
+ * Load + merge 0xcraft config for a specific harness.
+ *
+ * Returns the canonical nested `ZeroxCraftConfig`. Unknown / legacy
+ * flat keys are rejected by strict Zod and surface as
+ * `config.validation.failed` diagnostics; the loader falls back to
+ * `mergeConfig({})` (= `defaultConfig`) in that case.
+ */
+export function loadConfig(options: LoadConfigOptions): LoadConfigResult {
+  const projectRoot = options.projectRoot ?? process.cwd();
+  const homeDir = options.homeDir ?? os.homedir();
+  const env = options.env ?? process.env;
+
+  const diagnostics: Diagnostic[] = [];
+  const sources: string[] = [];
+
+  const candidates = getConfigPaths(options.harness, projectRoot, homeDir);
+
+  let accumulator: Record<string, unknown> = {};
+
+  for (const candidate of candidates) {
+    const result = readCandidate(candidate, diagnostics);
+    if (!result) continue;
+
+    sources.push(result.sourcePath);
+
+    // Env interpolation.
+    const missing = new Set<string>();
+    const interpolated = interpolateEnv(result.config, env, diagnostics, missing) as Record<
+      string,
+      unknown
+    >;
+
+    accumulator = shallowMerge(accumulator, interpolated);
+  }
+
+  // CLI overrides — applied last, must be nested-shaped.
+  if (options.cliOverrides !== undefined) {
+    accumulator = shallowMerge(accumulator, options.cliOverrides as Record<string, unknown>);
+  }
+
+  // Schema validation. Failures become diagnostics; we fall back to
+  // `defaultConfig` for any sub-tree that doesn't parse.
+  let parsed: ZeroxCraftConfig;
+  const validation = zeroxCraftConfigSchema.safeParse(accumulator);
+  if (validation.success) {
+    parsed = mergeConfig(validation.data as PartialZeroxCraftConfig);
+  } else {
+    for (const issue of validation.error.issues) {
+      diagnostics.push({
+        severity: "error",
+        code: "config.validation.failed",
+        message: `${issue.path.join(".") || "<root>"}: ${issue.message}`,
+        details: sanitizeDetails({
+          path: issue.path,
+          code: issue.code,
+        }) as Record<string, unknown>,
+      });
+    }
+    parsed = mergeConfig({});
+  }
+
+  if (options.diagnosticSink) {
+    for (const d of diagnostics) options.diagnosticSink(d);
+  }
+
+  return { config: parsed, diagnostics, sources };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Merge candidate config into the accumulator. Right wins for scalars,
+ * arrays union with dedup, plain objects shallow-merge.
+ */
+function shallowMerge(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...base };
-
+  const out: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    if (result[key] === undefined) {
-      result[key] = value;
-      continue;
-    }
+    if (value === undefined) continue;
 
-    const baseValue = result[key];
+    const baseValue = out[key];
 
-    // Arrays: concatenate and deduplicate
     if (Array.isArray(baseValue) && Array.isArray(value)) {
-      result[key] = [...new Set([...baseValue, ...value])];
+      out[key] = [...new Set([...baseValue, ...value])];
       continue;
     }
 
-    // Objects: recurse
     if (
-      typeof baseValue === "object" &&
       baseValue !== null &&
+      typeof baseValue === "object" &&
       !Array.isArray(baseValue) &&
-      typeof value === "object" &&
       value !== null &&
+      typeof value === "object" &&
       !Array.isArray(value)
     ) {
-      result[key] = deepMerge(
+      out[key] = shallowMerge(
         baseValue as Record<string, unknown>,
         value as Record<string, unknown>,
       );
       continue;
     }
 
-    // Primitives: override replaces
-    result[key] = value;
+    out[key] = value;
   }
-
-  return result;
+  return out;
 }
 
-/**
- * Load 0xcraft configuration.
- *
- * Resolution order (closest wins):
- * 1. Walked project configs: <pwd up to $HOME>/.opencode/0xcraft.json[c]
- * 2. User config: ~/.config/opencode/0xcraft.json[c]
- * 3. Defaults from ZeroxCraftConfig
- */
-export function loadConfig(
-  projectDir?: string,
-  homeDir?: string,
-  options: LoadConfigOptions = {},
-): { config: Record<string, unknown>; sources: string[] } {
-  const home = homeDir ?? os.homedir();
-  const startDir = projectDir || process.cwd();
-  const sources: string[] = [];
+/* ------------------------------------------------------------------ */
+/*  Re-exports                                                          */
+/* ------------------------------------------------------------------ */
 
-  // 1. Walked configs (closest wins, so we reverse to merge far-to-near)
-  const walkedConfigs = walkConfigs(startDir, home, options).reverse();
-  if (walkedConfigs.length > 0) {
-    sources.push(`walked: ${startDir} → ${home}`);
-  }
-
-  // 2. User config
-  const userConfigPath = path.join(home, ".config", "opencode", "0xcraft");
-  const userConfig = readConfigFile(userConfigPath, options);
-  if (userConfig) {
-    sources.push(`user: ${userConfigPath}`);
-  }
-
-  // Merge: defaults ← user ← walked (far to near). Project-local config wins.
-  let merged: Record<string, unknown> = {};
-
-  if (userConfig) {
-    merged = deepMerge(merged, userConfig);
-  }
-
-  for (const walked of walkedConfigs) {
-    merged = deepMerge(merged, walked);
-  }
-
-  return { config: merged, sources };
-}
-
-/**
- * Validate config against ZeroxCraftConfig schema.
- * Returns the validated config with defaults applied.
- */
-export function validateConfig(raw: Record<string, unknown>): {
-  valid: boolean;
-  config: Record<string, unknown>;
-  errors: string[];
-} {
-  const errors: string[] = [];
-
-  // Validate enabledAgents / disabledAgents are string arrays
-  for (const key of ["enabledAgents", "disabledAgents", "enabledSkills", "disabledSkills", "disabledHooks"]) {
-    if (raw[key] !== undefined && !Array.isArray(raw[key])) {
-      errors.push(`${key} must be an array of strings`);
-    }
-  }
-
-  // Validate modelOverrides / temperatureOverrides are objects
-  for (const key of ["modelOverrides", "temperatureOverrides"]) {
-    if (raw[key] !== undefined && (typeof raw[key] !== "object" || Array.isArray(raw[key]))) {
-      errors.push(`${key} must be an object`);
-    }
-  }
-
-  // Validate boolean flags
-  for (const key of ["agentsGuardEnabled", "cavemanBootstrapEnabled", "gitWorktreeBootstrapEnabled"]) {
-    if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
-      errors.push(`${key} must be a boolean`);
-    }
-  }
-
-  // Validate mcpServers is an object
-  if (raw.mcpServers !== undefined && (typeof raw.mcpServers !== "object" || Array.isArray(raw.mcpServers))) {
-    errors.push("mcpServers must be an object");
-  }
-
-  return {
-    valid: errors.length === 0,
-    config: raw,
-    errors,
-  };
-}
+export { defaultConfig };
+export type { PlatformId };
