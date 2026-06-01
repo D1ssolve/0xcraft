@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import type { PlatformArtifact, PlatformArtifactFile } from "../_shared/artifact";
 import { serializeFrontmatter } from "../_shared/frontmatter";
@@ -329,7 +329,18 @@ function readRuntimeCodeAction(
     return normalizeLf(action.body);
   }
 
-  const filePath = resolve(process.cwd(), action.file ?? "");
+  if (!action.file) {
+    diagnostics.push({
+      severity: "warn",
+      code: "WARN_LOSSY_CONVERT",
+      message: "OpenCode runtime_code file could not be loaded; emitted empty plugin stub.",
+      details: { hookId: hook.id, file: action.file, platform: "opencode" },
+    });
+
+    return emitEmptyPluginStub(hook.id);
+  }
+
+  const filePath = resolve(dirname(hook.sourcePath), action.file ?? "");
   if (existsSync(filePath)) {
     return normalizeLf(readFileSync(filePath, "utf8"));
   }

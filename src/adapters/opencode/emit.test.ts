@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { AgentIR, CommandIR, HookIR, IRResource, McpServerIR, SkillIR } from "../../core/ir";
 import { emitOpenCode, emitOpenCodeHooks } from "./emit";
@@ -22,6 +25,64 @@ describe("emitOpenCodeHooks", () => {
       ".opencode/plugins/audit-tools.js": "export default async function AuditPlugin() {\n  return { event: async () => {} };\n}\n",
     });
     expect(result.diagnostics).toEqual([]);
+  });
+
+  test("loads runtime_code file relative to hook source path", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "0xcraft-opencode-runtime-"));
+    try {
+      const hookSourcePath = join(tempDir, "hooks", "audit-tools", "HOOK.md");
+      const pluginPath = join(tempDir, "hooks", "audit-tools", "plugin.js");
+      mkdirSync(join(tempDir, "hooks", "audit-tools"), { recursive: true });
+      writeFileSync(pluginPath, "export default function plugin() { return { event: async () => {} }; }\n", "utf8");
+
+      const result = emitOpenCodeHooks([
+        {
+          ...hookFixture({
+            id: "audit-tools",
+            actions: [{ type: "runtime_code", runtime: "opencode", file: "plugin.js" }],
+          }),
+          sourcePath: hookSourcePath,
+        },
+      ]);
+
+      expect(result.artifacts).toEqual({
+        ".opencode/plugins/audit-tools.js": "export default function plugin() { return { event: async () => {} }; }\n",
+      });
+      expect(result.diagnostics).toEqual([]);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  test("emits empty plugin stub and warning when runtime_code has no file", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "0xcraft-opencode-runtime-"));
+    try {
+      const hookDir = join(tempDir, "hooks", "missing-file");
+      mkdirSync(hookDir, { recursive: true });
+
+      const result = emitOpenCodeHooks([
+        {
+          ...hookFixture({
+            id: "missing-file",
+            actions: [{ type: "runtime_code", runtime: "opencode" }],
+          }),
+          sourcePath: join(hookDir, "HOOK.md"),
+        },
+      ]);
+
+      expect(result.artifacts[".opencode/plugins/missing-file.js"]).toContain(
+        "// runtime_code file for hook missing-file was not loadable during emit.",
+      );
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: "warn",
+          code: "WARN_LOSSY_CONVERT",
+          details: { hookId: "missing-file", file: undefined, platform: "opencode" },
+        }),
+      ]);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
   });
 
   test("emits mixed primitives as JS shim plugins with informational OpenCode-only diagnostics", () => {

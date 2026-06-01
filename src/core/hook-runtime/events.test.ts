@@ -39,6 +39,7 @@ const EXPECTED_HOOK_EVENTS = [
   "Elicitation",
   "ElicitationResult",
   "SessionEnd",
+  "experimental.chat.messages.transform",
 ] as const;
 
 const EXPECTED_CODEX_HOOK_EVENTS = [
@@ -55,9 +56,9 @@ const EXPECTED_CODEX_HOOK_EVENTS = [
 ] as const;
 
 describe("hook runtime events", () => {
-  test("exports all 30 Claude hook events in spec order", () => {
+  test("exports all 31 Claude hook events in spec order", () => {
     expect(HOOK_EVENTS).toEqual(EXPECTED_HOOK_EVENTS);
-    expect(HOOK_EVENTS).toHaveLength(30);
+    expect(HOOK_EVENTS).toHaveLength(31);
   });
 
   test("exports the 10 Codex hook events", () => {
@@ -65,8 +66,8 @@ describe("hook runtime events", () => {
     expect(CODEX_HOOK_EVENTS).toHaveLength(10);
   });
 
-  test("tracks the 20 Claude events unsupported by Codex", () => {
-    expect(CODEX_UNSUPPORTED_EVENTS.size).toBe(20);
+  test("tracks the 21 Claude events unsupported by Codex", () => {
+    expect(CODEX_UNSUPPORTED_EVENTS.size).toBe(21);
 
     for (const event of HOOK_EVENTS) {
       expect(CODEX_UNSUPPORTED_EVENTS.has(event)).toBe(!CODEX_HOOK_EVENTS.includes(event as never));

@@ -29,6 +29,7 @@ export const HOOK_EVENTS = [
   "Elicitation",
   "ElicitationResult",
   "SessionEnd",
+  "experimental.chat.messages.transform",
 ] as const;
 
 export type HookEvent = typeof HOOK_EVENTS[number];
@@ -87,7 +88,8 @@ export type NeutralIntent =
   | "after_compact"
   | "elicitation"
   | "elicitation_result"
-  | "session_end";
+  | "session_end"
+  | "experimental_chat_messages_transform";
 
 export const EVENT_MAPPING_TABLE: Record<NeutralIntent, {
   claude: HookEvent;
@@ -123,4 +125,5 @@ export const EVENT_MAPPING_TABLE: Record<NeutralIntent, {
   elicitation: { claude: "Elicitation", codex: null },
   elicitation_result: { claude: "ElicitationResult", codex: null },
   session_end: { claude: "SessionEnd", codex: null },
+  experimental_chat_messages_transform: { claude: "experimental.chat.messages.transform", codex: null },
 };
