@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { CodexApprovalPolicy, Id, PermissionIR, Sources } from "./permission";
+import { ReferencesMap } from "./references";
 
 export const AgentRole = z.enum(["primary", "subagent"]);
 
@@ -126,6 +127,7 @@ export const AgentIR = z.object({
     claude: ClaudeAgentMeta.optional(),
     codex: CodexAgentMeta.optional(),
   }).strict(),
+  references: ReferencesMap,
   diagnostics: z.array(DiagnosticIR).optional(),
   provenance: ProvenanceIR.optional(),
   _sources: Sources,

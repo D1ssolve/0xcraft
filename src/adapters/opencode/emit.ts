@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import type { PlatformArtifact, PlatformArtifactFile } from "../_shared/artifact";
 import { serializeFrontmatter } from "../_shared/frontmatter";
+import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles } from "../_shared/references";
 import { matrixDiagnosticFor } from "../../core/capability-matrix/diagnostics";
 import type { CapabilityFeature } from "../../core/capability-matrix/matrix-types";
 import type { Diagnostic } from "../../core/diagnostics";
@@ -38,10 +39,10 @@ export function emitOpenCode(ir: IRResource[], _opts: EmitOptions = {}): Platfor
   for (const resource of [...ir].sort(compareResource)) {
     switch (resource.kind) {
       case "agent":
-        files.push(emitAgentFile(resource, diagnostics));
+        files.push(...emitAgentFiles(resource, diagnostics));
         break;
       case "skill":
-        files.push(emitSkillFile(resource, diagnostics));
+        files.push(...emitSkillFiles(resource, diagnostics));
         break;
       case "command":
         files.push(emitCommandFile(resource));
@@ -87,7 +88,7 @@ export function emitOpenCode(ir: IRResource[], _opts: EmitOptions = {}): Platfor
   };
 }
 
-function emitAgentFile(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArtifactFile {
+function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArtifactFile[] {
   diagnosePlatformOnlyFields(agent.platform.claude, "claude", diagnostics);
   diagnosePlatformOnlyFields(agent.platform.codex, "codex", diagnostics);
 
@@ -107,14 +108,17 @@ function emitAgentFile(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArtif
     experimental: agent.platform.opencode?.experimental,
   }));
 
-  return {
-    path: `.opencode/agents/${agent.id}.md`,
-    content: frontmatterWithBody(meta, agent.common.prompt),
-    mode: 0o644,
-  };
+  return [
+    {
+      path: `.opencode/agents/${agent.id}.md`,
+      content: frontmatterWithBody(meta, agent.common.prompt),
+      mode: 0o644,
+    },
+    ...referencesToArtifactFiles(agent.references, `.opencode/agents/${agent.id}/references`),
+  ];
 }
 
-function emitSkillFile(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArtifactFile {
+function emitSkillFiles(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArtifactFile[] {
   if (skill.common["allowed-tools"] !== undefined || skill.common["disallowed-tools"] !== undefined) {
     diagnostics.push(createSkillToolListDiagnostic(skill.id, "common"));
   }
@@ -133,11 +137,14 @@ function emitSkillFile(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArtif
     metadata: opencodeMeta.metadata,
   }));
 
-  return {
-    path: `.opencode/skills/${skill.id}/SKILL.md`,
-    content: frontmatterWithBody(meta, skill.common.body),
-    mode: 0o644,
-  };
+  return [
+    {
+      path: `.opencode/skills/${skill.id}/SKILL.md`,
+      content: frontmatterWithBody(meta, skill.common.body),
+      mode: 0o644,
+    },
+    ...referencesToArtifactFiles(skill.references, `.opencode/skills/${skill.id}/references`),
+  ];
 }
 
 function emitCommandFile(command: CommandIR): PlatformArtifactFile {
@@ -592,10 +599,6 @@ function sortedObject(value: Record<string, unknown>): Record<string, unknown> {
   return sortJsonValue(value) as Record<string, unknown>;
 }
 
-function ensureTrailingLf(content: string): string {
-  return content.endsWith("\n") ? content : `${content}\n`;
-}
-
 function stableStringify(value: unknown): string {
   return JSON.stringify(sortJsonValue(value), null, 2);
 }
@@ -614,8 +617,4 @@ function sortJsonValue(value: unknown): unknown {
   }
 
   return value;
-}
-
-function normalizeLf(content: string): string {
-  return content.replaceAll("\r\n", "\n");
 }

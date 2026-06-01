@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadSourceTree, type PlatformId, type ResourceKind } from "./file-loader";
+import { loadResourceDirectoryRaw, loadSourceTree, type PlatformId, type ResourceKind } from "./file-loader";
 
 const sandboxes: string[] = [];
 
@@ -160,6 +160,109 @@ describe("source file loader", () => {
 
     expect(() => loadSourceTree(root, [])).toThrow(expect.objectContaining({ code: "ERR_CYCLIC_INCLUDE" }));
   });
+
+  test("loads agent and skill references sorted by filename with provenance paths", () => {
+    const root = sandbox();
+    writeResource(root, "agent", "with-refs", "AGENT.md", commonAgent("With Refs"));
+    writeReference(root, "agent", "with-refs", "z-last.md", "last\n");
+    writeReference(root, "agent", "with-refs", "a-first.txt", "first\n");
+    writeResource(root, "skill", "skill-refs", "SKILL.md", commonSkill("Skill Refs"));
+    writeReference(root, "skill", "skill-refs", "example.md", "example\n");
+
+    const files = loadSourceTree(root, []);
+
+    const agent = files.find((file) => file.kind === "agent" && file.id === "with-refs");
+    expect(agent?.references).toEqual([
+      { filename: "a-first.txt", content: "first\n", filePath: join(root, "agents", "with-refs", "references", "a-first.txt") },
+      { filename: "z-last.md", content: "last\n", filePath: join(root, "agents", "with-refs", "references", "z-last.md") },
+    ]);
+    const skill = files.find((file) => file.kind === "skill" && file.id === "skill-refs");
+    expect(skill?.references).toEqual([
+      { filename: "example.md", content: "example\n", filePath: join(root, "skills", "skill-refs", "references", "example.md") },
+    ]);
+  });
+
+  test("omits references and diagnostics when references directory is missing or empty", () => {
+    const root = sandbox();
+    writeResource(root, "agent", "no-refs", "AGENT.md", commonAgent("No Refs"));
+    writeResource(root, "skill", "empty-refs", "SKILL.md", commonSkill("Empty Refs"));
+    mkdirSync(join(root, "skills", "empty-refs", "references"), { recursive: true });
+
+    const files = loadSourceTree(root, []);
+
+    expect(files.find((file) => file.id === "no-refs")?.references).toBeUndefined();
+    expect(files.find((file) => file.id === "no-refs")?.diagnostics).toBeUndefined();
+    expect(files.find((file) => file.id === "empty-refs")?.references).toBeUndefined();
+    expect(files.find((file) => file.id === "empty-refs")?.diagnostics).toBeUndefined();
+  });
+
+  test("warns and skips invalid reference filenames while loading valid siblings", () => {
+    const root = sandbox();
+    writeResource(root, "agent", "bad-ref-name", "AGENT.md", commonAgent("Bad Ref Name"));
+    writeReference(root, "agent", "bad-ref-name", "Bad File.md", "bad\n");
+    writeReference(root, "agent", "bad-ref-name", "ok.md", "ok\n");
+
+    const [agent] = loadSourceTree(root, []);
+
+    expect(agent?.references).toEqual([
+      { filename: "ok.md", content: "ok\n", filePath: join(root, "agents", "bad-ref-name", "references", "ok.md") },
+    ]);
+    expect(agent?.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: "warn",
+        code: "WARN_REFERENCE_INVALID_FILENAME",
+        details: {
+          file: join(root, "agents", "bad-ref-name", "references", "Bad File.md"),
+          filename: "Bad File.md",
+          resourceId: "bad-ref-name",
+          kind: "agent",
+        },
+      }),
+    ]);
+  });
+
+  test("warns and skips binary-looking reference files and silently skips subdirectories", () => {
+    const root = sandbox();
+    writeResource(root, "agent", "binary-ref", "AGENT.md", commonAgent("Binary Ref"));
+    const referencesDir = join(root, "agents", "binary-ref", "references");
+    mkdirSync(referencesDir, { recursive: true });
+    writeFileSync(join(referencesDir, "binary.txt"), Buffer.from([0x00, 0xff, 0x00]));
+    writeReference(root, "agent", "binary-ref", "valid.md", "valid\n");
+    mkdirSync(join(root, "agents", "binary-ref", "references", "nested"), { recursive: true });
+
+    const [agent] = loadSourceTree(root, []);
+
+    expect(agent?.references).toEqual([
+      { filename: "valid.md", content: "valid\n", filePath: join(root, "agents", "binary-ref", "references", "valid.md") },
+    ]);
+    expect(agent?.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: "warn",
+        code: "WARN_REFERENCE_BINARY_SKIPPED",
+        details: {
+          file: join(root, "agents", "binary-ref", "references", "binary.txt"),
+          filename: "binary.txt",
+          resourceId: "binary-ref",
+          kind: "agent",
+        },
+      }),
+    ]);
+  });
+
+  test("loads references from pack resource directories via loadResourceDirectoryRaw", () => {
+    const root = sandbox();
+    const directory = join(root, "pack-agent");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "AGENT.md"), commonAgent("Pack Agent"));
+    mkdirSync(join(directory, "references"), { recursive: true });
+    writeFileSync(join(directory, "references", "pack.md"), "pack\n");
+
+    const [agent] = loadResourceDirectoryRaw("vendor.pack.agent", directory, "agent", []);
+
+    expect(agent?.references).toEqual([
+      { filename: "pack.md", content: "pack\n", filePath: join(directory, "references", "pack.md") },
+    ]);
+  });
 });
 
 function writeResource(root: string, kind: ResourceKind, id: string, fileName: string, content: string): void {
@@ -171,6 +274,12 @@ function writeResource(root: string, kind: ResourceKind, id: string, fileName: s
     command: "commands",
   };
   const directory = join(root, resourceDirectories[kind], id);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, fileName), content);
+}
+
+function writeReference(root: string, kind: "agent" | "skill", id: string, fileName: string, content: string): void {
+  const directory = join(root, kind === "agent" ? "agents" : "skills", id, "references");
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, fileName), content);
 }

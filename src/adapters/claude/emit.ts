@@ -4,6 +4,7 @@ import { translateActionForPlatform, translateEventForPlatform } from "../../cor
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
 import type { PlatformArtifact, PlatformArtifactFile } from "../_shared/artifact";
 import { serializeFrontmatter } from "../_shared/frontmatter";
+import { normalizeLf, referencesToArtifactFiles } from "../_shared/references";
 
 export type ClaudeEmitMode = "claude-plugin" | "claude-subagent";
 
@@ -66,6 +67,7 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
   if (opts.mode === "claude-subagent") {
     for (const agent of sortById(agents)) {
       files.push(textFile(`.claude/agents/${agent.id}.md`, emitSubagentAgent(agent)));
+      files.push(...referencesToArtifactFiles(agent.references, `.claude/agents/${agent.id}/references`));
     }
 
     return artifact(files, diagnostics);
@@ -80,10 +82,12 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
 
   for (const agent of sortById(agents)) {
     files.push(textFile(`agents/${agent.id}.md`, emitPluginAgent(agent, diagnostics)));
+    files.push(...referencesToArtifactFiles(agent.references, `agents/${agent.id}/references`));
   }
 
   for (const skill of sortById(skills)) {
     files.push(textFile(`skills/${skill.id}/SKILL.md`, emitPluginSkill(skill)));
+    files.push(...referencesToArtifactFiles(skill.references, `skills/${skill.id}/references`));
   }
 
   if (hooks.length > 0) {
@@ -331,10 +335,6 @@ function normalizeToolList(value: string | string[] | undefined): string[] | und
 
 function memoryType(memory: Record<string, unknown> | undefined): string | undefined {
   return typeof memory?.type === "string" ? memory.type : undefined;
-}
-
-function normalizeLf(content: string): string {
-  return content.replaceAll("\r\n", "\n");
 }
 
 function emitHandler(action: HookActionIR, diagnostics: Diagnostic[]): ClaudeHookHandler | undefined {

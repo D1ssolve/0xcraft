@@ -134,6 +134,7 @@ function opencodeStatus(feature: CapabilityFeature): MatrixEntry {
     case "agents.model":
     case "agents.permissions":
     case "agents.primary":
+    case "agents.references":
     case "agents.subagent":
     case "agents.temperature":
     case "commands.slash":
@@ -152,6 +153,7 @@ function opencodeStatus(feature: CapabilityFeature): MatrixEntry {
     case "permissions.bashGlob":
     case "permissions.perTool":
     case "skills.autoLoad":
+    case "skills.references":
     case "skills.skillMd":
       return cell("full", OPENCODE_RESEARCH);
     case "hooks.actions.invoke_agent":
@@ -185,6 +187,7 @@ function claudeStatus(feature: CapabilityFeature): MatrixEntry {
     case "agents.perAgentMcp":
     case "agents.permissions":
     case "agents.primary":
+    case "agents.references":
     case "agents.subagent":
     case "commands.slash":
     case "customTools.mcp":
@@ -201,6 +204,7 @@ function claudeStatus(feature: CapabilityFeature): MatrixEntry {
     case "permissions.perTool":
     case "skills.allowed-tools":
     case "skills.autoLoad":
+    case "skills.references":
     case "skills.skillMd":
       return cell("full", CLAUDE_RESEARCH);
     case "hooks.actions.run_script":
@@ -237,8 +241,10 @@ function codexStatus(feature: CapabilityFeature): MatrixEntry {
     case "agent.frontmatter.hooks":
     case `agent.frontmatter.${PERM_MODE}`:
     case "agents.permissions":
+    case "agents.references":
     case "hooks.actions.run_exec":
     case "permissions.perTool":
+    case "skills.references":
       return cell("shim", SPEC_MATRIX);
     case "hooks.actions.run_script":
       return cell("shell-cmd", SPEC_MATRIX);

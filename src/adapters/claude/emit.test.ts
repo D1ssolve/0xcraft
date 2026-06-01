@@ -201,6 +201,38 @@ describe("emitClaude", () => {
     expect(skillFile).not.toContain("allowedTools");
   });
 
+  test("emits plugin agent and skill references next to their Claude files", () => {
+    const agent: AgentIR = {
+      ...agentFixture(),
+      references: {
+        "zeta.txt": "line one\r\nline two",
+        "alpha.md": "# Alpha\n",
+      },
+    };
+    const skill: SkillIR = {
+      ...skillFixture(),
+      references: {
+        "example.md": "Example",
+      },
+    };
+
+    const result = emitClaude([agent, skill], {
+      mode: "claude-plugin",
+      packageMetadata: { name: "refs-test", version: "0.0.0", description: "Refs test." },
+    });
+
+    expect(result.files.map((file) => file.path)).toEqual([
+      ".claude-plugin/plugin.json",
+      "agents/reviewer.md",
+      "agents/reviewer/references/alpha.md",
+      "agents/reviewer/references/zeta.txt",
+      "skills/audit/references/example.md",
+      "skills/audit/SKILL.md",
+    ]);
+    expect(fileContent(result, "agents/reviewer/references/zeta.txt")).toBe("line one\nline two\n");
+    expect(fileContent(result, "skills/audit/references/example.md")).toBe("Example\n");
+  });
+
   test("emits MCP with mcpServers wrapper", () => {
     const result = emitClaude([mcpFixture()], {
       mode: "claude-plugin",
@@ -274,6 +306,30 @@ describe("emitClaude", () => {
     expect(agentFile).toContain("color: blue");
     expect(agentFile).toContain("initialPrompt: Review this code");
     expect(agentFile).toEndWith("Review code for correctness and security.\n");
+  });
+
+  test("emits subagent agent references but not skill references", () => {
+    const agent: AgentIR = {
+      ...agentFixture(),
+      references: {
+        "guide.md": "Use checklist.",
+      },
+    };
+    const skill: SkillIR = {
+      ...skillFixture(),
+      references: {
+        "skip.md": "Subagent mode does not emit skills.",
+      },
+    };
+
+    const result = emitClaude([agent, skill], { mode: "claude-subagent" });
+
+    expect(result.files.map((file) => file.path)).toEqual([
+      ".claude/agents/reviewer.md",
+      ".claude/agents/reviewer/references/guide.md",
+    ]);
+    expect(fileContent(result, ".claude/agents/reviewer/references/guide.md")).toBe("Use checklist.\n");
+    expect(result.files.some((file) => file.path.includes("skip.md"))).toBe(false);
   });
 
   test("is deterministic across repeated subagent emissions", () => {

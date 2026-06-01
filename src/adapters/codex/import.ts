@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import type { Diagnostic } from "../../core/diagnostics";
 import type {
@@ -12,6 +12,7 @@ import type { HookEvent } from "../../core/hook-runtime/events";
 import { CODEX_HOOK_EVENTS, HOOK_EVENTS } from "../../core/hook-runtime/events";
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
 import { parseToml } from "../../core/loader/toml-parser";
+import { loadReferencesFromDir } from "../_shared/references";
 
 export interface CodexImportResult {
   ir: IRResource[];
@@ -247,6 +248,10 @@ function importCodexAgent(
   }
 
   const sandbox = data.sandbox_mode ?? "read-only";
+  const references = loadReferencesFromDir(join(dirname(filePath), id, "references"));
+  const sourceFiles = references.sourceFiles.length > 0
+    ? [filePath, ...references.sourceFiles]
+    : [filePath];
 
   const common: AgentIR["common"] = {
     name,
@@ -274,7 +279,8 @@ function importCodexAgent(
     sourcePath: filePath,
     common: { ...common, permissions },
     platform: { codex: Object.keys(platform).length > 0 ? platform : undefined },
-    provenance: { importedFrom: "codex", sourceFiles: [filePath] },
+    references: Object.keys(references.files).length > 0 ? references.files : undefined,
+    provenance: { importedFrom: "codex", sourceFiles },
     _sources: {},
   } as AgentIR;
 }

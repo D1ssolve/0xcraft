@@ -14,6 +14,7 @@ import type { HookEvent } from "../../core/hook-runtime/events";
 import { HOOK_EVENTS } from "../../core/hook-runtime/events";
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
 import { parseYamlFrontmatter } from "../../core/loader/yaml-parser";
+import { loadReferencesFromDir } from "../_shared/references";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -254,7 +255,7 @@ function importPluginMode(
       if (!entry.endsWith(".md")) continue;
       const id = entry.replace(/\.md$/, "");
       const filePath = join(agentsDir, entry);
-      const agent = importClaudeAgent(id, filePath, diagnostics, true);
+      const agent = importClaudeAgent(id, filePath, diagnostics, true, join(agentsDir, id, "references"));
       if (agent !== undefined) ir.push(agent);
     }
   }
@@ -265,7 +266,7 @@ function importPluginMode(
     for (const entry of sortedReaddir(skillsDir)) {
       const skillPath = join(skillsDir, entry, "SKILL.md");
       if (!existsSync(skillPath)) continue;
-      const skill = importClaudeSkill(entry, skillPath, diagnostics);
+      const skill = importClaudeSkill(entry, skillPath, diagnostics, join(skillsDir, entry, "references"));
       if (skill !== undefined) ir.push(skill);
     }
   }
@@ -300,7 +301,7 @@ function importSubagentMode(
       if (!entry.endsWith(".md")) continue;
       const id = entry.replace(/\.md$/, "");
       const filePath = join(agentsDir, entry);
-      const agent = importClaudeAgent(id, filePath, diagnostics, false);
+      const agent = importClaudeAgent(id, filePath, diagnostics, false, join(agentsDir, id, "references"));
       if (agent !== undefined) ir.push(agent);
     }
   }
@@ -322,6 +323,7 @@ function importClaudeAgent(
   filePath: string,
   diagnostics: Diagnostic[],
   isPluginMode: boolean,
+  referencesDir?: string,
 ): AgentIR | undefined {
   const content = readFileSync(filePath, "utf8");
   const parsed = parseYamlFrontmatter(content);
@@ -380,13 +382,21 @@ function importClaudeAgent(
     }
   }
 
+  const references = referencesDir === undefined
+    ? { files: {}, sourceFiles: [] }
+    : loadReferencesFromDir(referencesDir);
+  const sourceFiles = references.sourceFiles.length > 0
+    ? [filePath, ...references.sourceFiles]
+    : [filePath];
+
   return {
     id,
     kind: "agent",
     sourcePath: filePath,
     common,
+    references: Object.keys(references.files).length > 0 ? references.files : undefined,
     platform: { claude: Object.keys(platform).length > 0 ? platform : undefined },
-    provenance: { importedFrom: "claude-code", sourceFiles: [filePath] },
+    provenance: { importedFrom: "claude-code", sourceFiles },
     _sources: {},
   } as AgentIR;
 }
@@ -399,6 +409,7 @@ function importClaudeSkill(
   id: string,
   filePath: string,
   diagnostics: Diagnostic[],
+  referencesDir?: string,
 ): SkillIR | undefined {
   const content = readFileSync(filePath, "utf8");
   const parsed = parseYamlFrontmatter(content);
@@ -432,13 +443,21 @@ function importClaudeSkill(
     common["disallowed-tools"] = normalizeToolList(fm["disallowed-tools"]);
   }
 
+  const references = referencesDir === undefined
+    ? { files: {}, sourceFiles: [] }
+    : loadReferencesFromDir(referencesDir);
+  const sourceFiles = references.sourceFiles.length > 0
+    ? [filePath, ...references.sourceFiles]
+    : [filePath];
+
   return {
     id,
     kind: "skill",
     sourcePath: filePath,
     common,
+    references: Object.keys(references.files).length > 0 ? references.files : undefined,
     platform: { claude: Object.keys(platform).length > 0 ? platform : undefined },
-    provenance: { importedFrom: "claude-code", sourceFiles: [filePath] },
+    provenance: { importedFrom: "claude-code", sourceFiles },
     _sources: {},
   } as SkillIR;
 }

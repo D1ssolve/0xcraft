@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { DiagnosticIR, ProvenanceIR } from "./agent";
 import { Id, Sources } from "./permission";
+import { ReferencesMap } from "./references";
 
 export const SkillToolList = z.union([z.array(z.string()), z.string()]);
 
@@ -68,6 +69,7 @@ export const SkillIR = z.object({
     claude: ClaudeSkillMeta.optional(),
     codex: CodexSkillMeta.optional(),
   }).strict(),
+  references: ReferencesMap,
   diagnostics: z.array(DiagnosticIR).optional(),
   provenance: ProvenanceIR.optional(),
   _sources: Sources,

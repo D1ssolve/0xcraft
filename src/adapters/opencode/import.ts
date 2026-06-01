@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import type { Diagnostic } from "../../core/diagnostics";
 import type {
@@ -13,6 +13,7 @@ import type {
 import type { HookEvent } from "../../core/hook-runtime/events";
 import { HOOK_EVENTS } from "../../core/hook-runtime/events";
 import { parseYamlFrontmatter } from "../../core/loader/yaml-parser";
+import { loadReferencesFromDir } from "../_shared/references";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -231,6 +232,10 @@ function importMarkdownAgent(
   const permissions = fm.permission !== undefined
     ? mapOpenCodePermission(fm.permission as Record<string, unknown>)
     : undefined;
+  const references = loadReferencesFromDir(join(dirname(filePath), id, "references"));
+  const sourceFiles = references.sourceFiles.length > 0
+    ? [filePath, ...references.sourceFiles]
+    : [filePath];
 
   return {
     id,
@@ -245,8 +250,9 @@ function importMarkdownAgent(
       permissions,
       prompt: prompt || (fm.prompt as string) || "",
     },
+    references: Object.keys(references.files).length > 0 ? references.files : undefined,
     platform: { opencode: Object.keys(platform).length > 0 ? platform : undefined },
-    provenance: { importedFrom: "opencode", sourceFiles: [filePath] },
+    provenance: { importedFrom: "opencode", sourceFiles },
     _sources: {},
   } as AgentIR;
 }
@@ -339,6 +345,10 @@ function importSkill(
       platformOpaque[key] = value;
     }
   }
+  const references = loadReferencesFromDir(join(dirname(filePath), "references"));
+  const sourceFiles = references.sourceFiles.length > 0
+    ? [filePath, ...references.sourceFiles]
+    : [filePath];
 
   return {
     id,
@@ -349,12 +359,13 @@ function importSkill(
       description: (fm.description as string) ?? "",
       body: parsed.body.trim(),
     },
+    references: Object.keys(references.files).length > 0 ? references.files : undefined,
     platform: {
       opencode: Object.keys({ ...native, ...platformOpaque }).length > 0
         ? { ...native, ...platformOpaque }
         : undefined,
     },
-    provenance: { importedFrom: "opencode", sourceFiles: [filePath] },
+    provenance: { importedFrom: "opencode", sourceFiles },
     _sources: {},
   } as SkillIR;
 }

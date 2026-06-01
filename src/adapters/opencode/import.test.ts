@@ -73,6 +73,97 @@ describe("importOpenCode", () => {
     }
   });
 
+  it("imports skill references from .opencode/skills/<id>/references", () => {
+    const dir = createTempDir();
+    try {
+      const skillDir = join(dir, ".opencode", "skills", "caveman");
+      const refsDir = join(skillDir, "references");
+      mkdirSync(refsDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), [
+        "---",
+        "name: caveman",
+        "description: Ultra-compressed communication",
+        "---",
+        "Respond terse like smart caveman.",
+      ].join("\n"));
+      writeFileSync(join(refsDir, "zeta.txt"), "Z\n");
+      writeFileSync(join(refsDir, "alpha.md"), "A\n");
+      writeFileSync(join(refsDir, "Bad File.md"), "skip\n");
+      mkdirSync(join(refsDir, "nested.md"));
+
+      const result = importOpenCode(dir);
+      const skill = result.ir.find((r) => r.kind === "skill" && r.id === "caveman");
+      expect(skill).toBeDefined();
+      if (skill?.kind !== "skill") throw new Error("expected skill");
+      expect(skill.references).toEqual({
+        "alpha.md": "A\n",
+        "zeta.txt": "Z\n",
+      });
+      expect(Object.keys(skill.references ?? {})).toEqual(["alpha.md", "zeta.txt"]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("imports agent references from .opencode/agents/<id>/references", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, ".opencode", "agents");
+      const refsDir = join(agentsDir, "code-explorer", "references");
+      mkdirSync(refsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "code-explorer.md"), [
+        "---",
+        "name: code-explorer",
+        "description: Read-only codebase discovery",
+        "mode: subagent",
+        "---",
+        "You are a code explorer agent.",
+      ].join("\n"));
+      writeFileSync(join(refsDir, "guide.md"), "Guide\n");
+      writeFileSync(join(refsDir, "template_1.txt"), "Template\n");
+      writeFileSync(join(refsDir, "file.json"), "skip\n");
+
+      const result = importOpenCode(dir);
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "code-explorer");
+      expect(agent).toBeDefined();
+      if (agent?.kind !== "agent") throw new Error("expected agent");
+      expect(agent.references).toEqual({
+        "guide.md": "Guide\n",
+        "template_1.txt": "Template\n",
+      });
+      expect(agent.provenance?.sourceFiles).toEqual([
+        join(agentsDir, "code-explorer.md"),
+        join(refsDir, "guide.md"),
+        join(refsDir, "template_1.txt"),
+      ]);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("omits references when OpenCode references directory is missing or empty", () => {
+    const dir = createTempDir();
+    try {
+      const skillDir = join(dir, ".opencode", "skills", "empty-refs");
+      mkdirSync(join(skillDir, "references"), { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), [
+        "---",
+        "name: empty-refs",
+        "description: Empty references",
+        "---",
+        "Body text.",
+      ].join("\n"));
+
+      const result = importOpenCode(dir);
+      const skill = result.ir.find((r) => r.kind === "skill" && r.id === "empty-refs");
+      expect(skill).toBeDefined();
+      if (skill?.kind !== "skill") throw new Error("expected skill");
+      expect(skill.references).toBeUndefined();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("passes unknown skill frontmatter to platform.opencode", () => {
     const dir = createTempDir();
     try {

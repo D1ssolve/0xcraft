@@ -102,6 +102,10 @@ export function mergeResource(
     provenance: { sourceFiles },
   };
 
+  if (kind === "agent" || kind === "skill") {
+    addReferences(resource, commonFiles);
+  }
+
   if (kind === "mcp") {
     resource.mcpEnvelope = buildMcpEnvelope(commonMetadata);
   }
@@ -202,6 +206,28 @@ function buildCommonIR(kind: ResourceKind, metadata: Record<string, unknown>, bo
     common.modifiers = [];
   }
   return common;
+}
+
+function addReferences(resource: Record<string, unknown>, commonFiles: RawResourceFile[]): void {
+  const referenceFiles = commonFiles.flatMap((file) => file.references ?? []);
+  if (referenceFiles.length === 0) {
+    return;
+  }
+
+  const references: Record<string, string> = {};
+  for (const reference of referenceFiles) {
+    references[reference.filename] = reference.content;
+  }
+
+  resource.references = Object.fromEntries(
+    Object.keys(references)
+      .sort((left, right) => left.localeCompare(right))
+      .map((filename) => [filename, references[filename]]),
+  );
+
+  const provenance = resource.provenance as { sourceFiles: string[] };
+  provenance.sourceFiles = [...new Set([...provenance.sourceFiles, ...referenceFiles.map((file) => file.filePath)])]
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function mergePlatformFrontmatter(

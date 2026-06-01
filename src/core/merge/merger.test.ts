@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_CONFIG, type ZeroxCraftConfig } from "../config/config-schema";
-import type { AgentIR } from "../ir";
+import type { AgentIR, SkillIR } from "../ir";
 import type { RawResourceFile } from "../loader/file-loader";
 import { mergeResource } from "./merger";
 
@@ -123,10 +123,79 @@ describe("mergeResource", () => {
     expect(resource.platform.codex?.model).toBe("haiku");
     expect(resource._sources?.model).toBe("<cli>");
   });
+
+  test("agent references from common files are sorted, last-write-wins, and added to provenance", () => {
+    const resource = mergeResource(
+      [
+        commonAgent({
+          file: "packs/base/AGENT.md",
+          references: [
+            { filename: "zeta.md", content: "base zeta", filePath: "packs/base/references/zeta.md" },
+            { filename: "alpha.txt", content: "base alpha", filePath: "packs/base/references/alpha.txt" },
+          ],
+        }),
+        commonAgent({
+          file: "agents/explorer/AGENT.md",
+          references: [
+            { filename: "zeta.md", content: "local zeta", filePath: "agents/explorer/references/zeta.md" },
+          ],
+        }),
+      ],
+      DEFAULT_CONFIG,
+      {},
+      "agent",
+      "explorer",
+    ) as AgentIR;
+
+    expect(resource.references).toEqual({
+      "alpha.txt": "base alpha",
+      "zeta.md": "local zeta",
+    });
+    expect(Object.keys(resource.references ?? {})).toEqual(["alpha.txt", "zeta.md"]);
+    expect(resource.provenance?.sourceFiles).toEqual([
+      "agents/explorer/AGENT.md",
+      "agents/explorer/references/zeta.md",
+      "packs/base/AGENT.md",
+      "packs/base/references/alpha.txt",
+      "packs/base/references/zeta.md",
+    ]);
+  });
+
+  test("skill references from common files are converted to IR", () => {
+    const resource = mergeResource(
+      [commonSkill({
+        references: [
+          { filename: "example.md", content: "Example", filePath: "skills/reviewer/references/example.md" },
+        ],
+      })],
+      DEFAULT_CONFIG,
+      {},
+      "skill",
+      "reviewer",
+    ) as SkillIR;
+
+    expect(resource.references).toEqual({ "example.md": "Example" });
+    expect(resource.provenance?.sourceFiles).toEqual([
+      "skills/reviewer/references/example.md",
+      "skills/reviewer/SKILL.md",
+    ]);
+  });
+
+  test("resources without references keep references absent", () => {
+    const resource = mergeResource(
+      [commonAgent()],
+      DEFAULT_CONFIG,
+      {},
+      "agent",
+      "explorer",
+    ) as AgentIR;
+
+    expect(resource.references).toBeUndefined();
+  });
 });
 
-function commonAgent(overrides: Record<string, unknown> & { file?: string } = {}): RawResourceFile {
-  const { file = "agents/explorer/AGENT.md", ...frontmatterOverrides } = overrides;
+function commonAgent(overrides: Record<string, unknown> & Pick<Partial<RawResourceFile>, "file" | "references"> = {}): RawResourceFile {
+  const { file = "agents/explorer/AGENT.md", references, ...frontmatterOverrides } = overrides;
   return {
     id: "explorer",
     kind: "agent",
@@ -138,6 +207,24 @@ function commonAgent(overrides: Record<string, unknown> & { file?: string } = {}
       ...frontmatterOverrides,
     },
     body: "Inspect the codebase.",
+    references,
+  };
+}
+
+function commonSkill(overrides: Record<string, unknown> & Pick<Partial<RawResourceFile>, "file" | "references"> = {}): RawResourceFile {
+  const { file = "skills/reviewer/SKILL.md", references, ...frontmatterOverrides } = overrides;
+  return {
+    id: "reviewer",
+    kind: "skill",
+    file,
+    platform: "common",
+    frontmatter: {
+      name: "Reviewer",
+      description: "Review code.",
+      ...frontmatterOverrides,
+    },
+    body: "Review changes.",
+    references,
   };
 }
 

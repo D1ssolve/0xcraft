@@ -177,6 +177,39 @@ describe("emitOpenCode", () => {
     );
   });
 
+  test("emits agent and skill reference files in sorted OpenCode reference directories", () => {
+    const artifact = emitOpenCode([
+      agentFixture({
+        id: "reviewer",
+        references: {
+          "zeta.txt": "agent zeta\r\n",
+          "alpha.md": "agent alpha",
+        },
+      }),
+      skillFixture({
+        id: "tdd",
+        references: {
+          "usage.txt": "skill usage\r\nnext",
+          "examples.md": "skill examples",
+        },
+      }),
+    ]);
+
+    expect(artifact.files.map((file) => file.path)).toEqual([
+      ".opencode/agents/reviewer.md",
+      ".opencode/agents/reviewer/references/alpha.md",
+      ".opencode/agents/reviewer/references/zeta.txt",
+      ".opencode/skills/tdd/references/examples.md",
+      ".opencode/skills/tdd/references/usage.txt",
+      ".opencode/skills/tdd/SKILL.md",
+      "opencode.json",
+    ]);
+    expect(fileContent(artifact, ".opencode/agents/reviewer/references/alpha.md")).toBe("agent alpha\n");
+    expect(fileContent(artifact, ".opencode/agents/reviewer/references/zeta.txt")).toBe("agent zeta\n");
+    expect(fileContent(artifact, ".opencode/skills/tdd/references/examples.md")).toBe("skill examples\n");
+    expect(fileContent(artifact, ".opencode/skills/tdd/references/usage.txt")).toBe("skill usage\nnext\n");
+  });
+
   test("emits commands as OpenCode command markdown files", () => {
     const artifact = emitOpenCode([commandFixture({ id: "ship" })]);
 
@@ -269,6 +302,7 @@ function fileContent(artifact: ReturnType<typeof emitOpenCode>, path: string): s
 function agentFixture(input: {
   id: string;
   platform?: AgentIR["platform"];
+  references?: AgentIR["references"];
 }): AgentIR {
   return {
     id: input.id,
@@ -282,6 +316,7 @@ function agentFixture(input: {
       temperature: 0.2,
       prompt: "Review code carefully.",
     },
+    references: input.references,
     platform: input.platform ?? {},
     _sources: {},
   };
@@ -291,6 +326,7 @@ function skillFixture(input: {
   id: string;
   common?: Partial<SkillIR["common"]>;
   platform?: SkillIR["platform"];
+  references?: SkillIR["references"];
 }): SkillIR {
   return {
     id: input.id,
@@ -302,6 +338,7 @@ function skillFixture(input: {
       body: "Write failing test first.",
       ...input.common,
     },
+    references: input.references,
     platform: input.platform ?? {},
     _sources: {},
   };

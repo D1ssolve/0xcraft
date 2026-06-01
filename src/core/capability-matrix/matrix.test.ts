@@ -4,6 +4,19 @@ import { CODEX_MATRIX, CLAUDE_MATRIX, OPENCODE_MATRIX, assertMatrixComplete } fr
 import { CAPABILITY_FEATURES } from "./matrix-types";
 
 describe("capability matrix", () => {
+  test("tracks 108 capability features", () => {
+    expect(CAPABILITY_FEATURES.length).toBe(108);
+  });
+
+  test("tracks reference feature support by platform", () => {
+    expect(OPENCODE_MATRIX["agents.references"]).toEqual(expect.objectContaining({ status: "full" }));
+    expect(OPENCODE_MATRIX["skills.references"]).toEqual(expect.objectContaining({ status: "full" }));
+    expect(CLAUDE_MATRIX["agents.references"]).toEqual(expect.objectContaining({ status: "full" }));
+    expect(CLAUDE_MATRIX["skills.references"]).toEqual(expect.objectContaining({ status: "full" }));
+    expect(CODEX_MATRIX["agents.references"]).toEqual(expect.objectContaining({ status: "shim" }));
+    expect(CODEX_MATRIX["skills.references"]).toEqual(expect.objectContaining({ status: "shim" }));
+  });
+
   test("assertMatrixComplete passes for all platform matrices", () => {
     expect(() => assertMatrixComplete()).not.toThrow();
   });

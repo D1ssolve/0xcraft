@@ -4,6 +4,7 @@ export * from "./hook";
 export * from "./mcp";
 export * from "./command";
 export * from "./permission";
+export * from "./references";
 
 import type { AgentIR } from "./agent";
 import type { CommandIR } from "./command";

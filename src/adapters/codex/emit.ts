@@ -1,6 +1,6 @@
 import type { CapabilityReport, Diagnostic } from "../../core/diagnostics";
 import { CAPABILITY_FEATURES } from "../../core/diagnostics";
-import type { AgentIR, HookIR, IRResource, McpServerIR } from "../../core/ir";
+import type { AgentIR, HookIR, IRResource, McpServerIR, SkillIR } from "../../core/ir";
 import { CODEX_MATCHER_IGNORED_EVENTS } from "../../core/hook-runtime/events";
 import {
   translateActionForPlatform,
@@ -8,6 +8,7 @@ import {
 } from "../../core/hook-runtime/translator";
 import { serializeToml } from "../../core/loader/toml-parser";
 import type { PlatformArtifact } from "../_shared/artifact";
+import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles } from "../_shared/references";
 
 export interface CodexPackageMetadata {
   name?: string;
@@ -54,6 +55,7 @@ export function emitCodex(ir: IRResource[], opts: CodexEmitOptions): PlatformArt
   }
 
   const agents = resourcesOfKind<AgentIR>(ir, "agent");
+  const skills = resourcesOfKind<SkillIR>(ir, "skill");
   const hooks = resourcesOfKind<HookIR>(ir, "hook");
   const mcps = resourcesOfKind<McpServerIR>(ir, "mcp");
   const config: Record<string, unknown> = {};
@@ -63,6 +65,11 @@ export function emitCodex(ir: IRResource[], opts: CodexEmitOptions): PlatformArt
       path: `.codex/agents/${agent.id}.toml`,
       content: emitAgentToml(agent, diagnostics, opts),
     });
+    files.push(...referencesToArtifactFiles(agent.references, `.codex/agents/${agent.id}/references`));
+  }
+
+  for (const skill of skills) {
+    files.push(...referencesToArtifactFiles(skill.references, `.codex/skills/${skill.id}/references`));
   }
 
   if (hooks.length > 0) {
@@ -231,8 +238,7 @@ function resourcesOfKind<T extends IRResource>(ir: IRResource[], kind: T["kind"]
 }
 
 function emitToml(data: Record<string, unknown>): string {
-  const content = serializeToml(omitUndefined(data)).replace(/\r\n?/g, "\n");
-  return content.endsWith("\n") ? content : `${content}\n`;
+  return ensureTrailingLf(normalizeLf(serializeToml(omitUndefined(data))));
 }
 
 function omitUndefined<T extends Record<string, unknown>>(value: T): T {
@@ -250,7 +256,9 @@ function artifact(
   files: PlatformArtifact["files"],
   diagnostics: Diagnostic[],
 ): PlatformArtifact {
-  const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  const sortedFiles = [...files]
+    .map((file) => ({ ...file, content: ensureTrailingLf(normalizeLf(file.content)) }))
+    .sort((a, b) => a.path.localeCompare(b.path));
   return {
     platform: "codex",
     kind: "filesystem-tree",

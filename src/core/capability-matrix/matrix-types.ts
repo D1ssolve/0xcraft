@@ -53,6 +53,7 @@ export const CapabilityFeature = {
   AgentsPerAgentMcp: "agents.perAgentMcp",
   AgentsPermissions: "agents.permissions",
   AgentsPrimary: "agents.primary",
+  AgentsReferences: "agents.references",
   AgentsSubagent: "agents.subagent",
   AgentsTemperature: "agents.temperature",
   Commands: "commands",
@@ -132,6 +133,7 @@ export const CapabilityFeature = {
   SkillsAllowedTools: "skills.allowed-tools",
   SkillsAutoLoad: "skills.autoLoad",
   SkillsMcpScoping: "skills.mcpScoping",
+  SkillsReferences: "skills.references",
   SkillsSkillMd: "skills.skillMd",
 } as const;
 

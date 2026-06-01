@@ -171,6 +171,7 @@ function agentFiles(agent: AgentIR, outDir: string): PendingFile[] {
       content: serializeToml({ ...codexCommon, ...(codexMeta ?? {}) }),
     });
   }
+  appendReferenceFiles(files, dir, agent.references);
 
   return files;
 }
@@ -192,8 +193,23 @@ function skillFiles(skill: SkillIR, outDir: string): PendingFile[] {
   if (skill.platform.codex !== undefined) {
     files.push({ path: join(dir, "skill.codex.toml"), content: serializeToml(skill.platform.codex as Record<string, unknown>) });
   }
+  appendReferenceFiles(files, dir, skill.references);
 
   return files;
+}
+
+function appendReferenceFiles(
+  files: PendingFile[],
+  targetDir: string,
+  references: Record<string, string> | undefined,
+): void {
+  if (references === undefined) return;
+  for (const [filename, content] of Object.entries(references).sort(([a], [b]) => a.localeCompare(b))) {
+    files.push({
+      path: join(targetDir, "references", filename),
+      content: content.replaceAll("\r\n", "\n") + (content.endsWith("\n") ? "" : "\n"),
+    });
+  }
 }
 
 function hookFiles(hook: HookIR, outDir: string): PendingFile[] {

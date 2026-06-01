@@ -41,6 +41,68 @@ describe("importCodex", () => {
     }
   });
 
+  it("loads agent references from adjacent references directory", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, ".codex", "agents");
+      const referencesDir = join(agentsDir, "explorer", "references");
+      mkdirSync(referencesDir, { recursive: true });
+      writeFileSync(join(agentsDir, "explorer.toml"), [
+        'name = "explorer"',
+        'description = "Code exploration agent"',
+        'developer_instructions = "You explore codebases."',
+      ].join("\n"));
+      writeFileSync(join(referencesDir, "guide.md"), "# Guide\nUse this guide.");
+      writeFileSync(join(referencesDir, "template_1.txt"), "Template body");
+      writeFileSync(join(referencesDir, "Bad File.md"), "skip me");
+
+      const result = importCodex(dir);
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "explorer");
+
+      expect(agent?.references).toEqual({
+        "guide.md": "# Guide\nUse this guide.",
+        "template_1.txt": "Template body",
+      });
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("omits references when agent references directory is absent", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, ".codex", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "reviewer.toml"), [
+        'name = "reviewer"',
+        'description = "Review agent"',
+        'developer_instructions = "Review prompt."',
+      ].join("\n"));
+
+      const result = importCodex(dir);
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "reviewer");
+
+      expect(agent?.references).toBeUndefined();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("does not create SkillIR from codex references-only directories", () => {
+    const dir = createTempDir();
+    try {
+      const skillReferencesDir = join(dir, ".codex", "skills", "research", "references");
+      mkdirSync(skillReferencesDir, { recursive: true });
+      writeFileSync(join(skillReferencesDir, "guide.md"), "# Guide");
+
+      const result = importCodex(dir);
+
+      expect(result.ir.some((r) => r.kind === "skill")).toBe(false);
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("imports supported approval_policy unchanged", () => {
     const dir = createTempDir();
     try {

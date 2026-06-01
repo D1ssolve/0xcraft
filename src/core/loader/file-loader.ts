@@ -14,6 +14,7 @@ import { ClaudeCommandMeta, CodexCommandMeta, OpenCodeCommandMeta } from "../ir/
 import { ClaudeHookMeta, CodexHookMeta, HookRuntime, OpenCodeHookMeta } from "../ir/hook";
 import { ClaudeMcpMeta, CodexMcpMeta, McpTransport, OpenCodeMcpMeta } from "../ir/mcp";
 import { PermissionIR } from "../ir/permission";
+import { REFERENCE_FILENAME_RE } from "../ir/references";
 import { ClaudeSkillMeta, CodexSkillMeta, OpenCodeSkillMeta } from "../ir/skill";
 import { resolveIncludes } from "./include-resolver";
 import { parseToml } from "./toml-parser";
@@ -23,6 +24,12 @@ export type PlatformId = "opencode" | "claude" | "codex";
 export type RawResourcePlatform = "common" | PlatformId;
 export type ResourceKind = "agent" | "skill" | "hook" | "mcp" | "command";
 
+export interface RawReferenceFile {
+  filename: string;
+  content: string;
+  filePath: string;
+}
+
 export interface RawResourceFile {
   id: string;
   kind: ResourceKind;
@@ -30,6 +37,7 @@ export interface RawResourceFile {
   platform: RawResourcePlatform;
   frontmatter: Record<string, unknown>;
   body: string;
+  references?: RawReferenceFile[];
   diagnostics?: Diagnostic[];
 }
 
@@ -255,7 +263,71 @@ function loadCommonFile(
     resource.diagnostics = diagnostics;
   }
 
+  if (definition.kind === "agent" || definition.kind === "skill") {
+    const { files: refFiles, diagnostics: refDiags } = loadReferencesDir(resourceDirectory, id, definition.kind);
+    if (refFiles.length > 0) {
+      resource.references = refFiles;
+    }
+    if (refDiags.length > 0) {
+      resource.diagnostics = [...(resource.diagnostics ?? []), ...refDiags];
+    }
+  }
+
   return resource;
+}
+
+function loadReferencesDir(
+  resourceDirectory: string,
+  resourceId: string,
+  kind: "agent" | "skill",
+): { files: RawReferenceFile[]; diagnostics: Diagnostic[] } {
+  const referencesDir = join(resourceDirectory, "references");
+  if (!existsSync(referencesDir)) {
+    return { files: [], diagnostics: [] };
+  }
+
+  const files: RawReferenceFile[] = [];
+  const diagnostics: Diagnostic[] = [];
+
+  for (const entry of readdirSync(referencesDir, { withFileTypes: true })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const filePath = join(referencesDir, entry.name);
+    if (!REFERENCE_FILENAME_RE.test(entry.name)) {
+      diagnostics.push({
+        severity: "warn",
+        code: "WARN_REFERENCE_INVALID_FILENAME",
+        message: `Invalid reference filename for ${kind}`,
+        details: { file: filePath, filename: entry.name, resourceId, kind },
+      });
+      continue;
+    }
+
+    try {
+      const content = readReferenceTextFile(filePath);
+      files.push({ filename: entry.name, content, filePath });
+    } catch {
+      diagnostics.push({
+        severity: "warn",
+        code: "WARN_REFERENCE_BINARY_SKIPPED",
+        message: `Skipped non-text reference file for ${kind}`,
+        details: { file: filePath, filename: entry.name, resourceId, kind },
+      });
+    }
+  }
+
+  files.sort((left, right) => left.filename.localeCompare(right.filename));
+  return { files, diagnostics };
+}
+
+function readReferenceTextFile(filePath: string): string {
+  const content = readFileSync(filePath, "utf8");
+  if (content.includes("\u0000") || content.includes("\uFFFD")) {
+    throw new Error("Reference file is not valid UTF-8 text");
+  }
+  return content;
 }
 
 function loadPlatformSibling(

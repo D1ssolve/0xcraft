@@ -85,6 +85,61 @@ describe("importClaude", () => {
     }
   });
 
+  it("loads plugin agent references from agents/<id>/references", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "reviewer.md"), [
+        "---",
+        "name: reviewer",
+        "description: Code review agent",
+        "---",
+        "Review code.",
+      ].join("\n"));
+
+      const referencesDir = join(agentsDir, "reviewer", "references");
+      mkdirSync(referencesDir, { recursive: true });
+      writeFileSync(join(referencesDir, "guide.md"), "Review guide\n");
+      writeFileSync(join(referencesDir, "Bad File.md"), "skip me\n");
+
+      const result = importClaude(dir, { mode: "claude-plugin" });
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "reviewer");
+
+      expect(agent?.references).toEqual({ "guide.md": "Review guide\n" });
+      expect(agent?.provenance?.sourceFiles).toContain(join(referencesDir, "guide.md"));
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("loads plugin skill references from skills/<id>/references", () => {
+    const dir = createTempDir();
+    try {
+      const skillDir = join(dir, "skills", "planner");
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, "SKILL.md"), [
+        "---",
+        "name: planner",
+        "description: Planning skill",
+        "---",
+        "Plan work.",
+      ].join("\n"));
+
+      const referencesDir = join(skillDir, "references");
+      mkdirSync(referencesDir, { recursive: true });
+      writeFileSync(join(referencesDir, "template.txt"), "Plan template\n");
+
+      const result = importClaude(dir, { mode: "claude-plugin" });
+      const skill = result.ir.find((r) => r.kind === "skill" && r.id === "planner");
+
+      expect(skill?.references).toEqual({ "template.txt": "Plan template\n" });
+      expect(skill?.provenance?.sourceFiles).toContain(join(referencesDir, "template.txt"));
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("imports full subagent agents from .claude/agents/*.md", () => {
     const dir = createTempDir();
     try {
@@ -110,6 +165,33 @@ describe("importClaude", () => {
       expect(agent.common.prompt).toBe("You build things.");
       const claude = (agent.platform as Record<string, Record<string, unknown>>)?.claude;
       expect(claude?.permissionMode).toBe("auto");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("loads subagent references from .claude/agents/<id>/references", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, ".claude", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "builder.md"), [
+        "---",
+        "name: builder",
+        "description: Build agent",
+        "---",
+        "Build things.",
+      ].join("\n"));
+
+      const referencesDir = join(agentsDir, "builder", "references");
+      mkdirSync(referencesDir, { recursive: true });
+      writeFileSync(join(referencesDir, "notes.md"), "Build notes\n");
+
+      const result = importClaude(dir, { mode: "claude-subagent" });
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "builder");
+
+      expect(agent?.references).toEqual({ "notes.md": "Build notes\n" });
+      expect(agent?.provenance?.sourceFiles).toContain(join(referencesDir, "notes.md"));
     } finally {
       cleanup(dir);
     }

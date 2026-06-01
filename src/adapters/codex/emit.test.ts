@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Diagnostic } from "../../core/diagnostics";
-import type { AgentIR, HookIR, IRResource, McpServerIR } from "../../core/ir";
+import type { AgentIR, HookIR, IRResource, McpServerIR, SkillIR } from "../../core/ir";
 import { parseToml } from "../../core/loader/toml-parser";
 import { emitCodex, emitCodexHooks } from "./emit";
 
@@ -285,6 +285,37 @@ describe("emitCodex", () => {
     expect(second.files).toEqual(first.files);
     expect(second.diagnostics).toEqual(first.diagnostics);
   });
+
+  test("emits agent and skill reference files", () => {
+    const result = emitCodex([
+      agent("backend-dev", {
+        references: {
+          "zeta.md": "windows\r\nline",
+          "alpha.txt": "already\n",
+        },
+      }),
+      skill("reviewer", {
+        "guide.md": "Use checklist.",
+      }),
+    ], {});
+
+    expect(result.ok).toBe(true);
+    expect(fileEntry(result, ".codex/agents/backend-dev/references/alpha.txt")).toEqual({
+      path: ".codex/agents/backend-dev/references/alpha.txt",
+      content: "already\n",
+      mode: 0o644,
+    });
+    expect(fileEntry(result, ".codex/agents/backend-dev/references/zeta.md")).toEqual({
+      path: ".codex/agents/backend-dev/references/zeta.md",
+      content: "windows\nline\n",
+      mode: 0o644,
+    });
+    expect(fileEntry(result, ".codex/skills/reviewer/references/guide.md")).toEqual({
+      path: ".codex/skills/reviewer/references/guide.md",
+      content: "Use checklist.\n",
+      mode: 0o644,
+    });
+  });
 });
 
 type HookAction = HookIR["common"]["actions"][number];
@@ -311,7 +342,7 @@ function hook(
 
 function agent(
   id: string,
-  overrides: { codex?: NonNullable<AgentIR["platform"]["codex"]> } = {},
+  overrides: { codex?: NonNullable<AgentIR["platform"]["codex"]>; references?: AgentIR["references"] } = {},
 ): AgentIR {
   return {
     id,
@@ -323,7 +354,27 @@ function agent(
       model: "gpt-5.5",
       prompt: "Build APIs.",
     },
+    references: overrides.references,
     platform: { codex: overrides.codex },
+    _sources: {},
+  };
+}
+
+function skill(
+  id: string,
+  references: SkillIR["references"],
+): SkillIR {
+  return {
+    id,
+    kind: "skill",
+    sourcePath: `skills/${id}/SKILL.md`,
+    common: {
+      name: "Reviewer",
+      description: "Review helper",
+      body: "Review code.",
+    },
+    platform: { codex: undefined },
+    references,
     _sources: {},
   };
 }
@@ -351,4 +402,10 @@ function file(result: ReturnType<typeof emitCodex>, path: string): string {
   const found = result.files.find((entry) => entry.path === path);
   expect(found).toBeDefined();
   return found!.content;
+}
+
+function fileEntry(result: ReturnType<typeof emitCodex>, path: string): ReturnType<typeof emitCodex>["files"][number] {
+  const found = result.files.find((entry) => entry.path === path);
+  expect(found).toBeDefined();
+  return found!;
 }
