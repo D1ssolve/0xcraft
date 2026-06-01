@@ -1,57 +1,55 @@
 #!/usr/bin/env node
 /**
- * 0xcraft CLI — diagnostics and setup.
+ * 0xcraft v3 CLI — converter-first.
  *
- * Usage:
- *   0xcraft doctor    — Run health diagnostics
- *   0xcraft install   — Interactive setup wizard
- *   0xcraft version   — Print version
+ * Commands:
+ *   init     Scaffold .0xcraft/ config and source layout
+ *   build    Build per-target artifacts from .0xcraft/ source
+ *   convert  Convert from one platform to another via IR
+ *   import   Import existing platform artifacts → .0xcraft/ source
+ *   doctor   Run diagnostics + capability matrix checks
+ *   pack     Manage installed 0xcraft packs
  */
 import { Command } from "commander";
-import { runDoctor, printDoctorResults } from "./doctor";
-import { runInstall } from "./install";
-import { readFileSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createInitCommand } from "./init";
+import { createBuildCommand } from "./build";
+import { createConvertCommand } from "./convert";
+import { createImportCommand } from "./import";
+import { createDoctorCommand } from "./doctor";
+import { createPackCommand } from "./pack";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function getVersion(): string {
   try {
     const pkgPath = resolve(__dirname, "../../package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
     return pkg.version ?? "0.0.0";
   } catch {
     return "0.0.0";
   }
 }
 
-const program = new Command();
+export function createCliProgram(): Command {
+  const program = new Command();
+  program
+    .name("0xcraft")
+    .description("Converter-first CLI between OpenCode, Claude Code, and Codex agent platforms")
+    .version(getVersion());
 
-program
-  .name("0xcraft")
-  .description("Agent operations plugin for OpenCode")
-  .version(getVersion());
+  program.addCommand(createInitCommand());
+  program.addCommand(createBuildCommand());
+  program.addCommand(createConvertCommand());
+  program.addCommand(createImportCommand());
+  program.addCommand(createDoctorCommand());
+  program.addCommand(createPackCommand());
 
-program
-  .command("doctor")
-  .description("Run health diagnostics — verify plugin registration, config, agents, skills, and MCPs")
-  .option("--json", "Output as JSON")
-  .action(async (opts) => {
-    const results = await runDoctor();
-    if (opts.json) {
-      console.log(JSON.stringify(results, null, 2));
-    } else {
-      printDoctorResults(results);
-    }
-    process.exit(results.ok ? 0 : 1);
-  });
+  return program;
+}
 
-program
-  .command("install")
-  .description("Interactive setup wizard — configure agents, skills, and MCPs")
-  .action(async () => {
-    await runInstall();
-  });
-
-program.parse();
+if (import.meta.main) {
+  await createCliProgram().parseAsync();
+}

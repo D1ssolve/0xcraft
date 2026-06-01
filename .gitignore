@@ -1,13 +1,8 @@
 # Dependencies
-.omo/*
-!.omo/rules/
-!.omo/rules/**
-.sisyphus/*
-!.sisyphus/rules/
-!.sisyphus/rules/**
 node_modules/
 
 # Build output
+# dist/ includes all generated adapter artifacts (ephemeral, recreated by build commands).
 dist/
 
 # Platform binaries (built, not committed)
@@ -50,3 +45,8 @@ oauth-success.html
 .debug-journal*.md
 session-ses_*.md
 plans/
+
+# Generated harness artifacts — recreated by
+# `0xcraft {claude,codex} generate` / `install --harness ...`.
+.claude/
+.codex/

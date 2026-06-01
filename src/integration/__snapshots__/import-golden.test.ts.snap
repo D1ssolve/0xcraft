@@ -1,0 +1,45 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`Golden import tests IR snapshot stability OpenCode fixture → IR snapshot 1`] = `
+[
+  "agent:config-agent",
+  "agent:main-agent",
+  "agent:sub-agent",
+  "command:config-cmd",
+  "command:help-cmd",
+  "hook:my-hook",
+  "mcp:local-server",
+  "mcp:remote-server",
+  "skill:my-skill",
+]
+`;
+
+exports[`Golden import tests IR snapshot stability Claude plugin fixture → IR snapshot 1`] = `
+[
+  "agent:agent-with-forbidden",
+  "agent:plugin-agent",
+  "hook:PostToolUse-1",
+  "hook:PreToolUse-1",
+  "mcp:file-system",
+  "mcp:web-search",
+  "skill:my-skill",
+]
+`;
+
+exports[`Golden import tests IR snapshot stability Claude subagent fixture → IR snapshot 1`] = `
+[
+  "agent:full-subagent",
+  "agent:minimal-subagent",
+]
+`;
+
+exports[`Golden import tests IR snapshot stability Codex fixture → IR snapshot 1`] = `
+[
+  "agent:primary-agent",
+  "agent:request-policy-agent",
+  "hook:PostToolUse-1",
+  "hook:PreToolUse-1",
+  "mcp:filesystem",
+  "mcp:remote-api",
+]
+`;

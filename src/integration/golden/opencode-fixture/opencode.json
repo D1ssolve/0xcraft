@@ -1,0 +1,38 @@
+{
+  "agent": {
+    "config-agent": {
+      "description": "Agent defined in config",
+      "mode": "subagent",
+      "model": "gpt-4o",
+      "temperature": 0.5,
+      "color": "blue",
+      "prompt": "You are a helper subagent defined via config."
+    }
+  },
+  "mcp": {
+    "local-server": {
+      "type": "local",
+      "command": ["node", "server.js", "--port", "3000"],
+      "environment": {
+        "NODE_ENV": "production"
+      },
+      "enabled": true
+    },
+    "remote-server": {
+      "type": "remote",
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "X-Api-Version": "v1"
+      },
+      "enabled": true
+    }
+  },
+  "command": {
+    "config-cmd": {
+      "template": "Summarize the following: {{input}}",
+      "description": "Config-defined command",
+      "agent": "config-agent",
+      "model": "gpt-4o"
+    }
+  }
+}

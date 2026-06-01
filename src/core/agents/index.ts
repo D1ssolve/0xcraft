@@ -1,2 +1,1 @@
-export { type AgentDefinition, type AgentPermissions, type TaskPermissions, resolveModel } from "./agent-types";
-export { builtinAgents, dualModeAgents, getAgentById, getPrimaryAgents, getSubagents } from "./builtin-agents";
+export { type AgentSpec, type AgentMode, resolveModel } from "./agent-spec";

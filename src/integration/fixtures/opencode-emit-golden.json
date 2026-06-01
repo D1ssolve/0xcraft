@@ -1,0 +1,50 @@
+{
+  "platform": "opencode",
+  "kind": "filesystem-tree",
+  "ok": true,
+  "files": [
+    {
+      "path": ".opencode/agents/reviewer.md",
+      "content": "---\ncolor: blue\ndescription: Reviews code with project guidance.\nenabled: true\nmcpServers:\n  - local-fs\nmode: subagent\nmodel: gpt-5.5\nname: Reviewer\ntemperature: 0.2\ntools: {\"bash\":true,\"read\":true}\n---\nReview code. Read .opencode/agents/reviewer/references/guide.md first.\n",
+      "mode": 420
+    },
+    {
+      "path": ".opencode/agents/reviewer/references/guide.md",
+      "content": "Check architecture boundaries and tests.\n",
+      "mode": 420
+    },
+    {
+      "path": ".opencode/commands/ship.md",
+      "content": "---\nagent: reviewer\narguments:\n  - {\"description\":\"Release target.\",\"name\":\"target\",\"required\":true}\ndescription: Prepare release notes.\nmodel: gpt-5.5\nname: Ship\n---\nShip {{target}} safely.\n",
+      "mode": 420
+    },
+    {
+      "path": ".opencode/plugins/audit-tools.js",
+      "content": "// 0xcraft-generated OpenCode hook plugin\nimport { spawn } from \"node:child_process\";\n\nconst actions = [\n  {\n    \"command\": \"printf audit\",\n    \"shell\": \"bash\",\n    \"timeoutMs\": 1000,\n    \"type\": \"run_command\"\n  }\n];\n\nexport default async function hook(input) {\n  return {\n    event: async (ctx) => {\n      for (const action of actions) {\n        await runAction(action, input, ctx);\n      }\n    },\n  };\n}\n\nasync function runAction(action, input, ctx) {\n  switch (action.type) {\n    case \"run_command\":\n      await runCommand(action.command, { shell: action.shell, timeoutMs: action.timeoutMs });\n      return;\n    case \"run_exec\":\n      await runExec(action.command, action.args ?? [], { timeoutMs: action.timeoutMs });\n      return;\n    case \"run_script\":\n      await runExec(action.runner ?? action.path, action.runner === undefined ? (action.args ?? []) : [action.path, ...(action.args ?? [])]);\n      return;\n    case \"http_request\":\n      await fetch(action.url, {\n        method: action.method ?? \"GET\",\n        headers: action.headers,\n        body: action.body === undefined ? undefined : typeof action.body === \"string\" ? action.body : JSON.stringify(action.body),\n      });\n      return;\n    case \"call_mcp_tool\":\n      await invokeOpenCodeMcpTool(input, action);\n      return;\n    case \"invoke_prompt\":\n      await invokeOpenCodePrompt(input, ctx, action);\n      return;\n    case \"invoke_agent\":\n      await invokeOpenCodeAgent(input, ctx, action);\n      return;\n  }\n}\n\nfunction runCommand(command, options = {}) {\n  return runExec(options.shell ?? process.env.SHELL ?? \"sh\", [\"-c\", command], { timeoutMs: options.timeoutMs });\n}\n\nfunction runExec(command, args = [], options = {}) {\n  return new Promise((resolve, reject) => {\n    const child = spawn(command, args, { stdio: \"inherit\" });\n    const timer = options.timeoutMs === undefined ? undefined : setTimeout(() => {\n      child.kill(\"SIGTERM\");\n      reject(new Error(\"OpenCode hook action timed out after \" + options.timeoutMs + \"ms\"));\n    }, options.timeoutMs);\n\n    child.on(\"error\", (error) => {\n      if (timer !== undefined) clearTimeout(timer);\n      reject(error);\n    });\n    child.on(\"exit\", (code) => {\n      if (timer !== undefined) clearTimeout(timer);\n      if (code === 0) resolve();\n      else reject(new Error(\"OpenCode hook action exited with code \" + code));\n    });\n  });\n}\n\nasync function invokeOpenCodeMcpTool(input, action) {\n  if (typeof input?.client?.mcp?.tool === \"function\") {\n    await input.client.mcp.tool({ server: action.server, tool: action.tool, input: action.input ?? {} });\n    return;\n  }\n  console.warn(\"[0xcraft] INFO INFO_HOOK_OPENCODE_ONLY — MCP hook shim requires OpenCode client support for \" + action.server + \".\" + action.tool);\n}\n\nasync function invokeOpenCodePrompt(input, ctx, action) {\n  if (typeof input?.client?.chat?.send === \"function\") {\n    await input.client.chat.send({ prompt: action.prompt, model: action.model, context: ctx });\n    return;\n  }\n  console.warn(\"[0xcraft] INFO INFO_HOOK_OPENCODE_ONLY — prompt hook shim requires OpenCode client chat support\");\n}\n\nasync function invokeOpenCodeAgent(input, ctx, action) {\n  if (typeof input?.client?.agent?.invoke === \"function\") {\n    await input.client.agent.invoke({ agent: action.agent, prompt: action.prompt, model: action.model, context: ctx });\n    return;\n  }\n  console.warn(\"[0xcraft] INFO INFO_HOOK_OPENCODE_ONLY — agent hook shim requires OpenCode client agent support\");\n}\n",
+      "mode": 420
+    },
+    {
+      "path": ".opencode/skills/tdd/references/example.md",
+      "content": "Red, green, refactor.\n",
+      "mode": 420
+    },
+    {
+      "path": ".opencode/skills/tdd/SKILL.md",
+      "content": "---\ndescription: Test-first workflow.\nname: TDD\n---\nWrite failing tests before code. See .opencode/skills/tdd/references/example.md.\n",
+      "mode": 420
+    },
+    {
+      "path": "opencode.json",
+      "content": "{\n  \"mcp\": {\n    \"local-fs\": {\n      \"command\": [\n        \"node\",\n        \"server.js\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"ROOT\": \"/repo\"\n      },\n      \"timeout\": 30,\n      \"type\": \"local\"\n    }\n  },\n  \"plugin\": [\n    \"./.opencode/plugins/audit-tools.js\"\n  ]\n}\n",
+      "mode": 420
+    }
+  ],
+  "diagnostics": [],
+  "capabilityReport": {
+    "platform": "opencode",
+    "features": {}
+  },
+  "metadata": {
+    "deterministic": true
+  }
+}
