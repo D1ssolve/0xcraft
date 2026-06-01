@@ -24,110 +24,222 @@
 
 # 0xcraft
 
-You're juggling OpenCode, Claude Code, and Codex. Maintaining 17 agent definitions in three formats. Syncing skills across platforms by hand. Debugging why your Claude plugin works but your Codex TOML doesn't.
+0xcraft converts agentic framework configuration between OpenCode, Claude Code, and OpenAI Codex. It reads platform files into a platform-neutral IR, then emits deterministic filesystem artifacts for the target platform.
 
-We did the work. Built the IR layer. Wrote the matrix. Tested every adapter.
+The goal is not to invent a fourth agent format. The goal is to keep one source of truth for agents, skills, hooks, MCP servers, commands, and permissions while preserving platform-specific details where the target supports them.
 
-Install 0xcraft. One config. One build command per harness. Done.
+## Supported platforms
 
-## Installation
+| Platform | Import | Emit | Notes |
+| --- | --- | --- | --- |
+| OpenCode | `opencode.json/jsonc`, `.opencode/agents/*.md`, `.opencode/skills/*.md`, `.opencode/commands/*.md`, `.opencode/plugins/*` | `opencode.json` plus `.opencode/*` files | Project-local files only. OpenCode runtime plugins are represented as runtime-specific hooks. |
+| Claude Code | `.claude-plugin/` plugin tree or `.claude/agents/` subagents | `claude-plugin` or `claude-subagent` mode | Plugin mode emits a plugin manifest plus agent, skill, hook, and MCP files. Subagent mode emits `.claude/agents/*.md`. |
+| Codex | `.codex/config.toml`, `.codex/agents/*.toml`, `.codex/hooks.json`, `.mcp.json` | `.codex/config.toml`, `.codex/agents/*.toml`, `.codex/hooks.json`, optional plugin/marketplace files | Hooks use the current event-keyed Codex shape. Only command handlers are runnable in Codex today; prompt and agent handlers are imported but diagnosed as skipped. |
+
+Official format references:
+
+- OpenCode config and agents: <https://opencode.ai/docs/config/> and <https://opencode.ai/docs/agents/>
+- Claude Code subagents, hooks, and MCP: <https://docs.anthropic.com/en/docs/claude-code/sub-agents>, <https://docs.anthropic.com/en/docs/claude-code/hooks>, <https://docs.anthropic.com/en/docs/claude-code/mcp>
+- Codex config, subagents, and hooks: <https://developers.openai.com/codex/config-reference>, <https://developers.openai.com/codex/config-advanced>, <https://developers.openai.com/codex/subagents>, <https://developers.openai.com/codex/hooks>
+
+## Install
 
 ```bash
 npm install -g 0xcraft
-# or
-bun install 0xcraft
 ```
 
-## Highlights
-
-|     | Feature                           | What it does                                                                                                |
-| :-: | :-------------------------------- | :---------------------------------------------------------------------------------------------------------- |
-| 🔄  | **Converter-First / IR Pipeline** | `import.ts` → IR → `emit.ts`. Symmetric adapters. No cross-adapter imports.                                 |
-| 🧩  | **106 × 3 Capability Matrix**     | Single source of truth for feature parity. Asserted on every doctor run.                                    |
-| 🎭  | **Multi-Harness Support**         | OpenCode (FS-only), Claude Code (plugin + subagent modes), Codex (TOML + hooks).                            |
-| 🪝  | **8 Hook Runtime Primitives**     | `run_command`, `invoke_agent`, `call_mcp_tool`, and more — translated per platform.                         |
-| 📦  | **Pack System**                   | Reusable agent packs via npm. `0xcraft-pack.json` manifest + pack-resolver.                                 |
-| 🔒  | **Secret Redaction**              | MCP env vars, headers, tokens → `[REDACTED]` before any diagnostic output.                                  |
-| 🧪  | **Deterministic Output**          | Same input → byte-identical artifacts. Sorted keys, LF endings, no timestamps.                              |
-| ✅  | **571 Tests, 0 Failures**         | Bun test suite. Purity tests enforce layer boundaries. Integration tests cover all 6 conversion directions. |
-
-### Architecture
-
-```
-src/core/          ← Harness-agnostic core: agents, skills, hooks, MCP, IR
-src/adapters/      ← Per-harness emitters: opencode, claude, codex
-src/cli/           ← Commander.js: init, build, convert, import, doctor, pack
-```
-
-**Core principle:** Don't over-abstract. Core defines data; adapters map to platform idioms.
-
-## CLI Commands
+For local development in this repository:
 
 ```bash
-# Initialize a project
-0xcraft init
-
-# Build for a specific harness
-0xcraft build --target opencode
-0xcraft build --target claude-code --mode claude-plugin
-0xcraft build --target codex --force
-
-# Convert between harnesses
-0xcraft convert --from opencode --to codex
-
-# Import existing config
-0xcraft import --from claude-code --overwrite
-
-# Run diagnostics + capability matrix check
-0xcraft doctor --target all --strict
-
-# Manage packs
-0xcraft pack add @my-org/agent-pack
-0xcraft pack list
+bun install
+bun run build
+bun test
 ```
+
+## Quick start
+
+```bash
+0xcraft init
+0xcraft doctor --target all
+0xcraft build --target codex --force
+```
+
+To convert an existing platform project:
+
+```bash
+0xcraft import --from opencode --overwrite
+0xcraft build --target claude-code --mode claude-plugin --force
+```
+
+Or convert directly:
+
+```bash
+0xcraft convert --from opencode --to codex
+```
+
+Example agent packs live outside this repository at:
+
+```text
+/Users/diss0x/dev/craft-agents
+```
+
+That repository contains reusable `agents/`, `skills/`, `hooks/`, `mcp/`, `opencode.json`, and `0xcraft-pack.json` examples.
+
+## Project layout
+
+0xcraft loads resources from `sourceRoot` in `.0xcraft/config.json[c]`. By default, `sourceRoot` is the project root.
+
+```text
+agents/<id>/AGENT.md          # common agent definition
+agents/<id>/agent.opencode.md # optional OpenCode metadata
+agents/<id>/agent.claude.md   # optional Claude metadata
+agents/<id>/agent.codex.toml  # optional Codex metadata
+
+skills/<id>/SKILL.md
+hooks/<id>/HOOK.md
+mcp/<id>/MCP.md
+commands/<id>/COMMAND.md
+```
+
+Resource ids must be lowercase kebab-case (`backend-developer`, `code-reviewer`, `pre-tool-guard`).
 
 ## Configuration
 
-Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`:
+Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`. The schema is strict: unknown keys are rejected.
 
 ```jsonc
 {
-  // Disable specific agents
-  "disabledAgents": ["go-mentor"],
-
-  // Disable specific skills
-  "disabledSkills": ["linkedin-article"],
-
-  // Override models per agent
-  "modelOverrides": {
-    "team-lead": "opencode/claude-opus-4-7",
-    "backend-developer": "github-copilot/gpt-5.5",
+  "schema": "0xcraft.config.v1",
+  "sourceRoot": ".",
+  "out": {
+    "opencode": ".",
+    "claudeCode": ".",
+    "codex": "."
   },
-
-  // Add custom MCP servers
-  "mcpServers": {
-    "my-custom-mcp": {
-      "type": "local",
-      "command": ["npx", "-y", "my-mcp-server"],
+  "enabled": {
+    "agents": [],
+    "skills": []
+  },
+  "disabled": {
+    "agents": ["experimental-agent"],
+    "skills": [],
+    "hooks": [],
+    "mcpServers": []
+  },
+  "packs": [
+    { "name": "@my-org/agent-pack", "version": "1.2.3" }
+  ],
+  "platforms": {
+    "codex": {
+      "hooksEmitMode": "hooks.json",
+      "mcpEnvelope": "wrapped",
+      "emitPlugin": false,
+      "emitMarketplace": false,
+      "permissionsBeta": false,
+      "agents": {
+        "backend-developer": {
+          "model": "gpt-5.5",
+          "model_reasoning_effort": "high",
+          "nickname_candidates": ["backend", "api"]
+        }
+      },
+      "mcpExtensions": {
+        "docs": {
+          "env_vars": ["DOCS_TOKEN"]
+        }
+      },
+      "permissionProfiles": {
+        "workspace": {
+          "sandbox_mode": "workspace-write",
+          "approval_policy": "on-request"
+        }
+      }
     },
+    "claude": {},
+    "opencode": {}
   },
-
-  // Toggle bootstrap hooks
-  "agentsGuardEnabled": true,
-  "cavemanBootstrapEnabled": true,
-  "gitWorktreeBootstrapEnabled": true,
+  "diagnostics": {
+    "strict": false,
+    "codes": {}
+  }
 }
 ```
 
-## Author's Note
+## CLI reference
 
-I got tired of writing the same agent definitions three times. Once for OpenCode's JSON. Once for Claude's plugin directory. Once for Codex's TOML. Every new skill meant three files. Every bug meant three fixes.
+| Command | Purpose |
+| --- | --- |
+| `0xcraft init` | Create a starter `.0xcraft/config.json`. |
+| `0xcraft build --target opencode\|claude-code\|codex\|all` | Build platform artifacts from the 0xcraft resource tree. |
+| `0xcraft build --target claude-code --mode claude-plugin\|claude-subagent` | Choose the Claude output mode. |
+| `0xcraft build --validate` | Dry-run without writing artifacts. |
+| `0xcraft build --force` | Overwrite existing generated files. |
+| `0xcraft convert --from <platform> --to <platform>` | Import one platform and emit another through IR. |
+| `0xcraft import --from <platform> --overwrite` | Import platform files into the 0xcraft resource tree. |
+| `0xcraft doctor --target all --strict --json` | Run diagnostics and capability matrix checks. |
+| `0xcraft pack add <pkg> --version <range>` | Add an npm package with a `0xcraft-pack.json` manifest. |
+| `0xcraft pack list` | List configured packs. |
 
-0xcraft is the distillation: one IR layer, three adapters, zero duplication.
+Supported platform ids are `opencode`, `claude-code`, and `codex`.
 
-**Stop maintaining three configs.**
-**Write once. Emit everywhere.**
+## Conversion model
+
+All conversions go through IR:
+
+```text
+platform files -> import adapter -> IR -> emit adapter -> platform files
+```
+
+This keeps adapters symmetric and prevents platform adapters from depending on each other. The core IR is platform-agnostic; platform-specific fields live under `platform.opencode`, `platform.claude`, or `platform.codex` and are preserved when possible.
+
+## Hooks and limitations
+
+0xcraft supports these IR hook primitives:
+
+```text
+run_command, run_exec, run_script, http_request,
+call_mcp_tool, invoke_prompt, invoke_agent, runtime_code
+```
+
+Platform support is intentionally explicit:
+
+- Claude Code has the broadest hook surface and uses event-keyed `hooks.json`.
+- Codex currently emits runnable command handlers only. `run_exec` is shimmed to a shell command, `timeoutMs` is emitted as Codex `timeout` seconds, and unsupported handlers produce diagnostics.
+- OpenCode runtime plugin hooks are preserved as platform-specific runtime code when they cannot be represented neutrally.
+- Some conversions are lossy. Run `0xcraft doctor` and inspect diagnostics before committing generated artifacts.
+
+## Codex details
+
+Codex output follows the current documented shapes:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(*)",
+        "hooks": [
+          { "type": "command", "command": "bun test", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex `approval_policy` accepts `untrusted`, `on-request`, `never`, or a granular policy object. Unsupported policy values are reported as errors instead of being rewritten.
+
+## Development
+
+```bash
+bun run typecheck
+bun test
+bun run build
+bun run src/cli/index.ts doctor --target all
+```
+
+The test suite covers purity rules, deterministic output, golden import/emit fixtures, round trips across platform pairs, capability matrix completeness, secret redaction, and pack resolution.
 
 ## License
 
-MIT — free like open source should be.
+MIT.

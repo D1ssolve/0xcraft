@@ -21,7 +21,6 @@ export interface RunImportOptions {
   overwrite?: boolean;
   strict?: boolean;
   json?: boolean;
-  nonInteractive?: boolean;
 }
 
 export interface RunImportResult {
@@ -49,7 +48,6 @@ export function createImportCommand(): Command {
     .option("--overwrite", "Overwrite existing common files")
     .option("--strict", "Upgrade warnings to errors")
     .option("--json", "Emit JSON diagnostics")
-    .option("--non-interactive", "Rewrite Codex on-failure approval policy to never")
     .action((options: RunImportOptions) => {
       const result = runImport(options);
       if (result.output.length > 0) {
@@ -87,7 +85,6 @@ export function runImport(options: RunImportOptions): RunImportResult {
 
   const importResult = importPlatform(from, inDir, {
     mode: options.mode ?? "auto",
-    nonInteractive: options.nonInteractive === true,
   });
   diagnostics.push(...importResult.diagnostics);
 
@@ -106,7 +103,7 @@ export function runImport(options: RunImportOptions): RunImportResult {
 function importPlatform(
   from: ImportSourcePlatform,
   inDir: string,
-  options: { mode: ClaudeImportMode; nonInteractive: boolean },
+  options: { mode: ClaudeImportMode },
 ): { ir: IRResource[]; diagnostics: Diagnostic[] } {
   switch (from) {
     case "opencode":
@@ -114,7 +111,7 @@ function importPlatform(
     case "claude-code":
       return importClaude(inDir, { mode: options.mode });
     case "codex":
-      return importCodex(inDir, { nonInteractive: options.nonInteractive });
+      return importCodex(inDir);
   }
 }
 
@@ -164,11 +161,8 @@ function agentFiles(agent: AgentIR, outDir: string): PendingFile[] {
       content: serializeYamlFrontmatter(agent.platform.claude as Record<string, unknown>, ""),
     });
   }
-  // Always emit agent.codex.toml when the agent was imported from codex
-  // (round-trip requires TOML sibling even if platform-specific fields are empty).
   const codexMeta = agent.platform.codex as Record<string, unknown> | undefined;
   if (codexMeta !== undefined || agent.provenance?.importedFrom === "codex") {
-    // Include codex-native common fields (e.g. model) for round-trip fidelity.
     const codexCommon: Record<string, unknown> = {};
     const commonModel = (agent.common as Record<string, unknown>).model;
     if (commonModel !== undefined) codexCommon.model = commonModel;

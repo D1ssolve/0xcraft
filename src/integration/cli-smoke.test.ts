@@ -77,7 +77,6 @@ function createValidProject(dir: string): void {
         emitApps: false,
         permissionsBeta: false,
         hooksEmitMode: "hooks.json",
-        nonInteractive: false,
       },
     },
     diagnostics: { strict: false },
@@ -236,7 +235,7 @@ describe("build", () => {
     const result = await runBuildCommand(dir, { target: "opencode" }, io);
     expect(result.exitCode).toBe(0);
     expect(result.artifacts).toHaveLength(1);
-    expect(result.artifacts[0].platform).toBe("opencode");
+    expect(result.artifacts[0]!.platform).toBe("opencode");
   });
 
   test("--target codex emits TOML agents", async () => {
@@ -246,14 +245,13 @@ describe("build", () => {
     const result = await runBuildCommand(dir, { target: "codex" }, io);
     expect(result.exitCode).toBe(0);
     expect(result.artifacts).toHaveLength(1);
-    expect(result.artifacts[0].platform).toBe("codex");
+    expect(result.artifacts[0]!.platform).toBe("codex");
   });
 
   test("--target claude-code --mode claude-plugin strips forbidden fields", async () => {
     const dir = tmpDir();
     createValidProject(dir);
 
-    // Add an agent with color (forbidden in plugin mode) via platform sibling
     write(dir, "agents/code-analyst/agent.claude.md", [
       "---",
       "color: purple",
@@ -262,12 +260,10 @@ describe("build", () => {
     ].join("\n"));
 
     const result = await runBuildCommand(dir, { target: "claude-code", mode: "claude-plugin" }, io);
-    // plugin mode strips forbidden fields (color) → warn or success, never hard error
     expect(result.exitCode).not.toBe(1);
     expect(result.artifacts).toHaveLength(1);
 
-    // Plugin mode artifact should NOT contain color in agent file
-    const agentArtifactFile = result.artifacts[0].files.find((f) => f.path.includes("agents"));
+    const agentArtifactFile = result.artifacts[0]!.files.find((f) => f.path.includes("agents"));
     if (agentArtifactFile !== undefined) {
       expect(agentArtifactFile.content).not.toContain("color: purple");
     }
@@ -277,7 +273,6 @@ describe("build", () => {
     const dir = tmpDir();
     createValidProject(dir);
 
-    // Add color via platform sibling
     write(dir, "agents/code-analyst/agent.claude.md", [
       "---",
       "color: purple",
@@ -289,8 +284,7 @@ describe("build", () => {
     expect(result.exitCode).toBe(0);
     expect(result.artifacts).toHaveLength(1);
 
-    // Subagent mode should preserve color
-    const agentFile = result.artifacts[0].files.find((f) => f.path.includes("my-agent") || f.path.includes("code-analyst"));
+    const agentFile = result.artifacts[0]!.files.find((f) => f.path.includes("my-agent") || f.path.includes("code-analyst"));
     if (agentFile !== undefined) {
       expect(agentFile.content).toContain("purple");
     }
@@ -385,7 +379,6 @@ describe("doctor", () => {
           emitApps: false,
           permissionsBeta: false,
           hooksEmitMode: "hooks.json",
-          nonInteractive: false,
         },
       },
       diagnostics: { strict: false },
@@ -557,27 +550,20 @@ describe("import", () => {
   test("--strict upgrades warnings to errors: exit 1 when warns present", () => {
     const src = tmpDir();
     const out = tmpDir();
-    createCodexFixture(src);
-
-    // Insert an agent with approval_policy = "on-failure" to trigger warn
-    write(src, ".codex/agents/my-agent.toml", [
-      'description = "My agent"',
-      'developer_instructions = "You are my agent."',
-      'model = "gpt-4o"',
-      'name = "my-agent"',
-      'approval_policy = "on-failure"',
-      "",
-    ].join("\n"));
+    write(src, ".codex/hooks.json", JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          {
+            hooks: [{ type: "prompt", prompt: "Summarize." }],
+          },
+        ],
+      },
+    }));
 
     const result = runImport({ from: "codex", inDir: src, outDir: out, strict: true });
-    // on-failure produces a warn → strict upgrades to error → exit 1
     expect(result.exitCode).toBe(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Exit code contract summary
-// ---------------------------------------------------------------------------
 
 describe("exit code contract", () => {
   test("build exits 0 on success", async () => {

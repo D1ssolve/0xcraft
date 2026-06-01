@@ -18,7 +18,6 @@ describe("importClaude", () => {
   it("imports plugin agents from agents/*.md", () => {
     const dir = createTempDir();
     try {
-      // Create plugin manifest
       const pluginDir = join(dir, ".claude-plugin");
       mkdirSync(pluginDir, { recursive: true });
       writeFileSync(join(pluginDir, "plugin.json"), JSON.stringify({
@@ -26,7 +25,6 @@ describe("importClaude", () => {
         version: "1.0.0",
       }));
 
-      // Create plugin agent
       const agentsDir = join(dir, "agents");
       mkdirSync(agentsDir, { recursive: true });
       writeFileSync(join(agentsDir, "reviewer.md"), [
@@ -44,7 +42,7 @@ describe("importClaude", () => {
       expect(result.mode).toBe("claude-plugin");
       const agents = result.ir.filter((r) => r.kind === "agent");
       expect(agents.length).toBe(1);
-      const agent = agents[0];
+      const agent = agents[0]!;
       expect(agent.id).toBe("reviewer");
       expect(agent.common.prompt).toBe("You are a code reviewer.");
       expect(agent.provenance?.importedFrom).toBe("claude-code");
@@ -108,39 +106,10 @@ describe("importClaude", () => {
       expect(result.mode).toBe("claude-subagent");
       const agents = result.ir.filter((r) => r.kind === "agent");
       expect(agents.length).toBe(1);
-      const agent = agents[0];
+      const agent = agents[0]!;
       expect(agent.common.prompt).toBe("You build things.");
-      // permissionMode should be in platform.claude, not stripped
       const claude = (agent.platform as Record<string, Record<string, unknown>>)?.claude;
       expect(claude?.permissionMode).toBe("auto");
-    } finally {
-      cleanup(dir);
-    }
-  });
-
-  it("rewrites camelCase allowedTools to allowed-tools with diagnostic", () => {
-    const dir = createTempDir();
-    try {
-      const skillsDir = join(dir, "skills", "my-skill");
-      mkdirSync(skillsDir, { recursive: true });
-      writeFileSync(join(skillsDir, "SKILL.md"), [
-        "---",
-        "name: my-skill",
-        "description: Test skill",
-        "allowedTools: Read Write",
-        "---",
-        "Skill body.",
-      ].join("\n"));
-
-      const result = importClaude(dir, { mode: "claude-plugin" });
-      const deprecatedDiag = result.diagnostics.find(
-        (d) => d.code === "skill.frontmatter.camelCase.deprecated",
-      );
-      expect(deprecatedDiag).toBeDefined();
-
-      const skill = result.ir.find((r) => r.kind === "skill" && r.id === "my-skill");
-      expect(skill).toBeDefined();
-      expect((skill?.common as Record<string, unknown>)["allowed-tools"]).toEqual(["Read", "Write"]);
     } finally {
       cleanup(dir);
     }
@@ -161,7 +130,7 @@ describe("importClaude", () => {
       const result = importClaude(dir, { mode: "claude-plugin" });
       const mcps = result.ir.filter((r) => r.kind === "mcp");
       expect(mcps.length).toBe(1);
-      expect(mcps[0].common.transport).toBe("http");
+      expect(mcps[0]!.common.transport).toBe("http");
 
       const normalizedDiag = result.diagnostics.find(
         (d) => d.code === "mcp.envelope.normalized" && d.details?.originalType === "streamable-http",
@@ -193,8 +162,8 @@ describe("importClaude", () => {
       const result = importClaude(dir, { mode: "claude-plugin" });
       const hooks = result.ir.filter((r) => r.kind === "hook");
       expect(hooks.length).toBeGreaterThanOrEqual(1);
-      const hook = hooks[0];
-      expect(hook.common.actions[0].type).toBe("run_command");
+      const hook = hooks[0]!;
+      expect(hook.common.actions[0]!.type).toBe("run_command");
       expect((hook.common.actions[0] as { command: string }).command).toBe("echo 'running'");
     } finally {
       cleanup(dir);

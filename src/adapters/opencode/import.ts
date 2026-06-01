@@ -228,18 +228,6 @@ function importMarkdownAgent(
   if (fm.maxSteps !== undefined) platform.maxSteps = fm.maxSteps;
   if (fm.options !== undefined) platform.options = fm.options;
 
-  // Deprecated tools field
-  if (fm.tools !== undefined) {
-    diagnostics.push({
-      severity: "warn",
-      code: "WARN_UNRECOGNIZED_PLATFORM_FIELD",
-      message: `OpenCode agent ${id} uses deprecated 'tools' field.`,
-      details: { id, field: "tools", platform: "opencode" },
-    });
-    platform.tools = fm.tools;
-  }
-
-  // Permission mapping
   const permissions = fm.permission !== undefined
     ? mapOpenCodePermission(fm.permission as Record<string, unknown>)
     : undefined;
@@ -582,7 +570,6 @@ function mapOpenCodePermission(
     bash: { allow: [], ask: [], deny: [] },
     sandbox: "read-only",
     platform: { opencode: perm },
-    _deprecatedOnFailure: false,
     _sources: {},
   };
 }

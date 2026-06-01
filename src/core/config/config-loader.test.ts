@@ -72,14 +72,14 @@ describe("loadConfig", () => {
       `{
         "schema": "0xcraft.config.v1",
         // JSONC config
-        "disabled": { "hooks": ["legacy"] },
+        "disabled": { "hooks": ["old-hook"] },
         "packs": [{ "name": "@0xcraft/agents-pack", "version": "1.2.3" }]
       }`,
     );
 
     const config = loadConfig(projectDir);
 
-    expect(config.disabled.hooks).toEqual(["legacy"]);
+    expect(config.disabled.hooks).toEqual(["old-hook"]);
     expect(config.packs).toEqual([{ name: "@0xcraft/agents-pack", version: "1.2.3" }]);
   });
 
@@ -95,7 +95,7 @@ describe("loadConfig", () => {
     const projectDir = makeSandbox();
     const flatAlias = `disabled${"Agents"}`;
     writeJson(path.join(projectDir, ".0xcraft", "config.json"), {
-      [flatAlias]: ["legacy"],
+      [flatAlias]: ["old-hook"],
     });
 
     expect(() => loadConfig(projectDir)).toThrow(new RegExp(flatAlias));

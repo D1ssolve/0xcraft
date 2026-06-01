@@ -44,11 +44,8 @@ export const INFO_DIAGNOSTIC_CODES = [
 
 export const PLATFORM_DIAGNOSTIC_CODES = [
   "claude.agent.plugin.field_stripped",
-  "skill.frontmatter.camelCase.deprecated",
   "codex.skills.allowed-tools.dropped",
   "codex.skills.allowedTools.dropped",
-  "codex.approval_policy.on-failure.deprecated",
-  "codex.hooks.codex_hooks.deprecated",
   "codex.hooks.handler.prompt.skipped",
   "codex.hooks.handler.agent.skipped",
   "codex.hooks.handler.async.skipped",

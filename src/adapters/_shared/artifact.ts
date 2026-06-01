@@ -18,7 +18,7 @@ import type { ZeroxCraftConfig } from "../../core/config/config-types";
 /* ---------------------------------------------------------------- */
 
 export interface BuildOptions {
-  /** Resolved & validated configuration (post legacy normalization). */
+  /** Resolved and validated configuration. */
   config: ZeroxCraftConfig;
 
   /** Absolute path to the consumer project root. */

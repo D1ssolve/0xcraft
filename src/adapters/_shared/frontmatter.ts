@@ -39,9 +39,6 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
   const header = content.slice(headerStart, end);
   const afterClosing = end + (`\n${FRONTMATTER_DELIMITER}`).length;
   const rest = content.slice(afterClosing);
-  // Strip leading whitespace/newlines after closing `---` (matches the
-  // legacy OpenCode parser; tolerates blank lines between frontmatter
-  // and body).
   const body = rest.replace(/^[ \t]*\n/, "").replace(/^\n+/, "");
 
   const meta: Record<string, unknown> = {};

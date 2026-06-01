@@ -25,6 +25,23 @@ function writeCodexAgent(root: string, approvalPolicy?: string): void {
   );
 }
 
+function writeCodexPromptHook(root: string): void {
+  const codexDir = path.join(root, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(codexDir, "hooks.json"),
+    JSON.stringify({
+      hooks: {
+        PostToolUse: [
+          {
+            hooks: [{ type: "prompt", prompt: "Summarize the tool result." }],
+          },
+        ],
+      },
+    }),
+  );
+}
+
 function read(root: string, relativePath: string): string {
   return fs.readFileSync(path.join(root, relativePath), "utf-8");
 }
@@ -64,45 +81,27 @@ describe("runImport", () => {
     expect(read(output, "agents/reviewer/AGENT.md")).toBe("existing");
   });
 
-  test("rewrites codex on-failure to on-request by default", () => {
+  test("rejects unsupported codex approval policy", () => {
     const input = makeSandbox();
     const output = makeSandbox();
     writeCodexAgent(input, "on-failure");
 
     const result = runImport({ from: "codex", inDir: input, outDir: output });
 
-    expect(result.exitCode).toBe(2);
+    expect(result.exitCode).toBe(1);
     expect(result.diagnostics).toContainEqual({
-      severity: "warn",
-      code: "codex.approval_policy.on-failure.deprecated",
-      message: expect.stringContaining("on-request"),
-      details: { id: "reviewer", originalPolicy: "on-failure", rewrittenPolicy: "on-request" },
+      severity: "error",
+      code: "ERR_CODEX_APPROVAL_POLICY_ON_FAILURE_EMIT",
+      message: "Codex approval_policy 'on-failure' is not supported.",
+      details: { id: "reviewer", approvalPolicy: "on-failure" },
     });
-    expect(read(output, "agents/reviewer/agent.codex.toml")).toContain('approval_policy = "on-request"');
-    expect(read(output, "agents/reviewer/agent.codex.toml")).not.toContain("on-failure");
-  });
-
-  test("rewrites codex on-failure to never when non-interactive", () => {
-    const input = makeSandbox();
-    const output = makeSandbox();
-    writeCodexAgent(input, "on-failure");
-
-    const result = runImport({
-      from: "codex",
-      inDir: input,
-      outDir: output,
-      nonInteractive: true,
-    });
-
-    expect(result.exitCode).toBe(2);
-    expect(read(output, "agents/reviewer/agent.codex.toml")).toContain('approval_policy = "never"');
-    expect(read(output, "agents/reviewer/agent.codex.toml")).not.toContain("on-failure");
+    expect(fs.existsSync(path.join(output, "agents", "reviewer", "agent.codex.toml"))).toBe(false);
   });
 
   test("strict upgrades warnings to errors and json returns structured diagnostics", () => {
     const input = makeSandbox();
     const output = makeSandbox();
-    writeCodexAgent(input, "on-failure");
+    writeCodexPromptHook(input);
 
     const result = runImport({ from: "codex", inDir: input, outDir: output, strict: true, json: true });
 
@@ -130,7 +129,7 @@ describe("runImport", () => {
 
     const warnInput = makeSandbox();
     const warnOutput = makeSandbox();
-    writeCodexAgent(warnInput, "on-failure");
+    writeCodexPromptHook(warnInput);
     expect(runImport({ from: "codex", inDir: warnInput, outDir: warnOutput }).exitCode).toBe(2);
   });
 });

@@ -43,7 +43,6 @@ export const PermissionIR = z.object({
   bash: BashPermissionIR,
   sandbox: SandboxMode,
   platform: PermissionPlatformMeta,
-  _deprecatedOnFailure: z.boolean(),
   _sources: Sources,
 }).strict();
 

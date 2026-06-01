@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { ConfigSchema, DEFAULT_CONFIG, type ZeroxCraftConfig } from "./config-schema";
 
+export type { ZeroxCraftConfig } from "./config-schema";
+
 export function stripJsonc(input: string): string {
   let output = "";
   let inString = false;

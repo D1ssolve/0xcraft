@@ -35,10 +35,10 @@ exports[`Golden import tests IR snapshot stability Claude subagent fixture → I
 
 exports[`Golden import tests IR snapshot stability Codex fixture → IR snapshot 1`] = `
 [
-  "agent:legacy-agent",
   "agent:primary-agent",
-  "hook:post-tool-hook",
-  "hook:pre-tool-hook",
+  "agent:request-policy-agent",
+  "hook:PostToolUse-1",
+  "hook:PreToolUse-1",
   "mcp:filesystem",
   "mcp:remote-api",
 ]

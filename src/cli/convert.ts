@@ -121,7 +121,7 @@ function importFrom(
     case "claude-code":
       return importClaude(inDir, { mode });
     case "codex":
-      return importCodex(inDir, {});
+      return importCodex(inDir);
   }
 }
 

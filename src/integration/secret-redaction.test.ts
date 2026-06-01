@@ -56,7 +56,7 @@ function mcpIR(overrides: Partial<McpServerIR["common"]> & {
     platform: {
       codex: codex,
     },
-    _sources: [],
+    _sources: {},
   } satisfies McpServerIR;
 }
 
@@ -108,7 +108,7 @@ describe("Secret redaction — sanitizeDetails", () => {
 
   test("Codex env_vars field redacted", () => {
     const sanitized = sanitizeDetails({
-      env_vars: { SECRET_KEY: "abc123", NORMAL: "val" },
+      env_vars: [{ name: "SECRET_KEY", source: "abc123" }],
     });
     // key contains "env" — must be redacted
     expect(sanitized.env_vars).toBe(REDACTED);
@@ -239,7 +239,7 @@ describe("Secret redaction — emitCodex diagnostics", () => {
   test("Codex env_vars does not leak in diagnostics", () => {
     const ir: IRResource[] = [
       mcpIR({
-        codex: { env_vars: { SECRET_KEY: "very-secret-val" } },
+        codex: { env_vars: [{ name: "SECRET_KEY", source: "very-secret-val" }] },
       }),
     ];
     const artifact = emitCodex(ir, {});

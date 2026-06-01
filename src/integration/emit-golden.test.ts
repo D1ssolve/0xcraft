@@ -430,11 +430,15 @@ describe("Golden emit tests", () => {
       const artifact = emitCodex(FIXTURE_IR, {});
       const hooksFile = artifact.files.find((f) => f.path === ".codex/hooks.json");
       expect(hooksFile).toBeDefined();
-      const hooksJson = JSON.parse(hooksFile!.content) as { hooks: unknown[] };
+      const hooksJson = JSON.parse(hooksFile!.content) as {
+        hooks: Record<string, Array<{ hooks: Array<{ type: string }> }>>;
+      };
       // All handlers must be type "command"
-      for (const hook of hooksJson.hooks as Array<{ handlers: Array<{ type: string }> }>) {
-        for (const handler of hook.handlers) {
-          expect(handler.type).toBe("command");
+      for (const groups of Object.values(hooksJson.hooks)) {
+        for (const group of groups) {
+          for (const handler of group.hooks) {
+            expect(handler.type).toBe("command");
+          }
         }
       }
     });
@@ -455,8 +459,7 @@ describe("Golden emit tests", () => {
       expect(shimDiags.length).toBeGreaterThanOrEqual(1);
     });
 
-    test("never emits approval_policy = on-failure", () => {
-      // Build IR with on-failure policy (should error, never write)
+    test("rejects approval_policy = on-failure", () => {
       const onFailureIR: IRResource[] = [
         {
           id: "bad-agent",
@@ -464,7 +467,7 @@ describe("Golden emit tests", () => {
           sourcePath: "agents/bad-agent/AGENT.md",
           common: {
             name: "Bad Agent",
-            description: "Agent with deprecated approval policy.",
+            description: "Agent with unsupported approval policy.",
             prompt: "I have a bad policy.",
           },
           platform: {
@@ -477,13 +480,11 @@ describe("Golden emit tests", () => {
       ];
 
       const artifact = emitCodex(onFailureIR, {});
-      // Must emit error diagnostic
       const errorDiags = artifact.diagnostics.filter(
         (d) => d.code === "ERR_CODEX_APPROVAL_POLICY_ON_FAILURE_EMIT",
       );
       expect(errorDiags.length).toBeGreaterThanOrEqual(1);
 
-      // Must NOT contain "on-failure" in any TOML content
       for (const file of artifact.files) {
         if (file.path.endsWith(".toml")) {
           expect(file.content).not.toContain('"on-failure"');

@@ -102,7 +102,6 @@ interface ClaudeSkillFrontmatter {
   "user-invocable"?: boolean;
   "allowed-tools"?: string | string[];
   "disallowed-tools"?: string | string[];
-  allowedTools?: string | string[];  // deprecated camelCase
   model?: string;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   context?: "fork";
@@ -405,19 +404,6 @@ function importClaudeSkill(
   const parsed = parseYamlFrontmatter(content);
   const fm = parsed.frontmatter as unknown as ClaudeSkillFrontmatter;
 
-  // Check for deprecated camelCase allowedTools
-  if (fm.allowedTools !== undefined) {
-    diagnostics.push({
-      severity: "warn",
-      code: "skill.frontmatter.camelCase.deprecated",
-      message: `Skill ${id} uses deprecated camelCase 'allowedTools'; rewriting to 'allowed-tools'.`,
-      details: { id, field: "allowedTools", platform: "claude" },
-    });
-    // Rewrite to hyphenated
-    (fm as Record<string, unknown>)["allowed-tools"] = fm.allowedTools;
-    delete (fm as Record<string, unknown>).allowedTools;
-  }
-
   const platform: Record<string, unknown> = {};
   if (fm.when_to_use !== undefined) platform.when_to_use = fm.when_to_use;
   if (fm["argument-hint"] !== undefined) platform["argument-hint"] = fm["argument-hint"];
@@ -472,7 +458,6 @@ function importClaudeHooks(
   const validEvents = new Set<string>(HOOK_EVENTS);
 
   for (const [eventKey, groups] of Object.entries(hooksJson.hooks)) {
-    // Validate event name
     if (!validEvents.has(eventKey)) {
       diagnostics.push({
         severity: "warn",
@@ -483,8 +468,7 @@ function importClaudeHooks(
       continue;
     }
 
-    for (let groupIdx = 0; groupIdx < groups.length; groupIdx++) {
-      const group = groups[groupIdx];
+    for (const [groupIdx, group] of groups.entries()) {
       const hookId = `${eventKey}-${groupIdx + 1}`;
       const actions: HookActionIR[] = [];
 
@@ -558,11 +542,12 @@ function mapHandlerToAction(
         model: handler.model,
       };
     default:
+      const unknownHandler = handler as unknown as Record<string, unknown>;
       diagnostics.push({
         severity: "warn",
         code: "WARN_UNRECOGNIZED_PLATFORM_FIELD",
-        message: `Unknown Claude hook handler type '${(handler as Record<string, unknown>).type}' in hook ${hookId}.`,
-        details: { hookId, handlerType: (handler as Record<string, unknown>).type },
+        message: `Unknown Claude hook handler type '${unknownHandler.type}' in hook ${hookId}.`,
+        details: { hookId, handlerType: unknownHandler.type },
       });
       return undefined;
   }
@@ -652,7 +637,7 @@ function resolveTransport(
     diagnostics.push({
       severity: "warn",
       code: "codex.mcp.sse.dropped",
-      message: `MCP server ${id} uses deprecated 'sse' transport; normalized to 'http'.`,
+      message: `MCP server ${id} uses 'sse' transport; normalized to 'http'.`,
       details: { id, originalType: type },
     });
     return "http";

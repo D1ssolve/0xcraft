@@ -90,7 +90,7 @@ describe("Golden import tests", () => {
       const hook = hooks.find((h) => h.id === "my-hook");
       expect(hook).toBeDefined();
       expect(hook!.common.actions).toHaveLength(1);
-      expect(hook!.common.actions[0].type).toBe("runtime_code");
+      expect(hook!.common.actions[0]!.type).toBe("runtime_code");
       expect((hook!.common.actions[0] as { type: string; runtime: string }).runtime).toBe("opencode");
 
       // Opaque import diagnostic
@@ -201,11 +201,11 @@ describe("Golden import tests", () => {
       const preHook = hooks.find((h) => h.id === "PreToolUse-1");
       expect(preHook).toBeDefined();
       expect(preHook!.common.events).toContain("PreToolUse");
-      expect(preHook!.common.actions[0].type).toBe("run_command");
+      expect(preHook!.common.actions[0]!.type).toBe("run_command");
 
       const postHook = hooks.find((h) => h.id === "PostToolUse-1");
       expect(postHook).toBeDefined();
-      expect(postHook!.common.actions[0].type).toBe("http_request");
+      expect(postHook!.common.actions[0]!.type).toBe("http_request");
     });
 
     test("MCP servers import correctly from .mcp.json", () => {
@@ -313,63 +313,32 @@ describe("Golden import tests", () => {
       expect(platform?.model_reasoning_effort).toBe("high");
     });
 
-    test("on-failure approval_policy → diagnostic + rewrite to on-request", () => {
-      const { ir, diagnostics } = importCodex(CDX_FIXTURE);
+    test("supported approval_policy imports unchanged", () => {
+      const { ir } = importCodex(CDX_FIXTURE);
       const agents = byKind<AgentIR>(ir, "agent");
 
-      const legacy = agents.find((a) => a.id === "legacy-agent");
-      expect(legacy).toBeDefined();
+      const policyAgent = agents.find((a) => a.id === "request-policy-agent");
+      expect(policyAgent).toBeDefined();
 
-      // Should be rewritten
-      const platform = legacy!.platform?.codex as Record<string, unknown> | undefined;
+      const platform = policyAgent!.platform?.codex as Record<string, unknown> | undefined;
       expect(platform?.approval_policy).toBe("on-request");
-
-      // Deprecation diagnostic present
-      const deprecationWarn = diagnostics.find(
-        (d) => d.code === "codex.approval_policy.on-failure.deprecated",
-      );
-      expect(deprecationWarn).toBeDefined();
-      expect(deprecationWarn!.severity).toBe("warn");
-
-      // _deprecatedOnFailure flag set in permissions
-      const permissions = legacy!.common.permissions as Record<string, unknown> | undefined;
-      expect(permissions?._deprecatedOnFailure).toBe(true);
     });
 
-    test("on-failure rewrites to never when --non-interactive", () => {
-      const { ir } = importCodex(CDX_FIXTURE, { nonInteractive: true });
-      const agents = byKind<AgentIR>(ir, "agent");
-
-      const legacy = agents.find((a) => a.id === "legacy-agent");
-      expect(legacy).toBeDefined();
-
-      const platform = legacy!.platform?.codex as Record<string, unknown> | undefined;
-      expect(platform?.approval_policy).toBe("never");
-    });
-
-    test("codex_hooks deprecated alias → diagnostic + rewrite to hooks", () => {
-      const { ir, diagnostics } = importCodex(CDX_FIXTURE);
+    test("hooks import from official event-keyed shape", () => {
+      const { ir } = importCodex(CDX_FIXTURE);
       const hooks = byKind<HookIR>(ir, "hook");
 
-      // Hooks should still be imported despite deprecated alias
       expect(hooks.length).toBeGreaterThanOrEqual(1);
-
-      // codex_hooks deprecation diagnostic
-      const deprecationWarn = diagnostics.find(
-        (d) => d.code === "codex.hooks.codex_hooks.deprecated",
-      );
-      expect(deprecationWarn).toBeDefined();
-      expect(deprecationWarn!.severity).toBe("warn");
     });
 
     test("hooks: command handler imports as run_command", () => {
       const { ir } = importCodex(CDX_FIXTURE);
       const hooks = byKind<HookIR>(ir, "hook");
 
-      const preHook = hooks.find((h) => h.id === "pre-tool-hook");
+      const preHook = hooks.find((h) => h.id === "PreToolUse-1");
       expect(preHook).toBeDefined();
       expect(preHook!.common.events).toContain("PreToolUse");
-      expect(preHook!.common.actions[0].type).toBe("run_command");
+      expect(preHook!.common.actions[0]!.type).toBe("run_command");
     });
 
     test("hooks: prompt handler imports with drop-warn diagnostic", () => {

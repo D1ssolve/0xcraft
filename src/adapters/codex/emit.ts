@@ -26,7 +26,6 @@ export interface CodexEmitOptions {
   emitPlugin?: boolean;
   emitMarketplace?: boolean;
   hooksEmitMode?: "hooks-json" | "hooks.json" | "config-inline";
-  nonInteractive?: boolean;
   permissionsBeta?: boolean;
   packageMetadata?: CodexPackageMetadata;
   marketplace?: CodexMarketplaceOptions;
@@ -70,9 +69,9 @@ export function emitCodex(ir: IRResource[], opts: CodexEmitOptions): PlatformArt
     const hookResult = emitCodexHooks(hooks);
     diagnostics.push(...hookResult.diagnostics);
 
-    const hooksJson = hookResult.artifacts[".codex/hooks.json"] ?? `${stableStringify({ hooks: [] })}\n`;
+    const hooksJson = hookResult.artifacts[".codex/hooks.json"] ?? `${stableStringify({ hooks: {} })}\n`;
     if ((opts.hooksEmitMode ?? "hooks-json") === "config-inline") {
-      config["hooks"] = JSON.parse(hooksJson);
+      config["hooks"] = JSON.parse(hooksJson).hooks;
     } else {
       files.push({ path: ".codex/hooks.json", content: hooksJson });
     }
@@ -120,21 +119,15 @@ export function emitCodex(ir: IRResource[], opts: CodexEmitOptions): PlatformArt
 export function emitCodexHooks(hooks: HookIR[]): CodexHookEmitResult {
   const artifacts: Record<string, string> = {};
   const diagnostics: Diagnostic[] = [];
-  const emittedHooks: unknown[] = [];
+  const emittedHooks: Record<string, unknown[]> = {};
 
   for (const hook of [...hooks].sort((a, b) => a.id.localeCompare(b.id))) {
-    const result = processHook(hook, diagnostics);
-    if (result !== null) {
-      emittedHooks.push(result);
+    for (const result of processHook(hook, diagnostics)) {
+      emittedHooks[result.event] = [...(emittedHooks[result.event] ?? []), result.group];
     }
   }
 
   artifacts[".codex/hooks.json"] = stableStringify({ hooks: emittedHooks }) + "\n";
-
-  if (emittedHooks.length > 0) {
-    artifacts[".codex/config.features.hooks.marker.json"] =
-      stableStringify({ _codexFeaturesHooks: true }) + "\n";
-  }
 
   return { artifacts, diagnostics };
 }
@@ -160,13 +153,11 @@ function emitAgentToml(agent: AgentIR, diagnostics: Diagnostic[], opts: CodexEmi
     diagnostics.push({
       severity: "error",
       code: "ERR_CODEX_APPROVAL_POLICY_ON_FAILURE_EMIT",
-      message: "Codex approval_policy 'on-failure' is deprecated and must not be emitted.",
+      message: "Codex approval_policy 'on-failure' is not supported.",
       details: { agentId: agent.id },
     });
   } else if (approvalPolicy !== undefined) {
     data["approval_policy"] = approvalPolicy;
-  } else if (agent.common.permissions?._deprecatedOnFailure === true) {
-    data["approval_policy"] = opts.nonInteractive === true ? "never" : "on-request";
   }
 
   return emitToml(data);
@@ -283,8 +274,7 @@ function emptyCapabilityReport(): CapabilityReport {
 function processHook(
   hook: HookIR,
   diagnostics: Diagnostic[],
-): Record<string, unknown> | null {
-  // Filter events for Codex support.
+): Array<{ event: string; group: Record<string, unknown> }> {
   const supportedEvents: string[] = [];
   for (const event of hook.common.events) {
     const r = translateEventForPlatform(event, "codex");
@@ -296,12 +286,10 @@ function processHook(
     }
   }
 
-  // Drop hook entirely if no supported events remain.
   if (supportedEvents.length === 0) {
-    return null;
+    return [];
   }
 
-  // Translate actions.
   const handlers: unknown[] = [];
   for (const action of hook.common.actions) {
     const r = translateActionForPlatform(action, "codex");
@@ -313,53 +301,38 @@ function processHook(
     }
   }
 
-  // Build output hook entry.
-  const entry: Record<string, unknown> = {
-    events: supportedEvents,
-    handlers,
-    id: hook.id,
-  };
+  if (handlers.length === 0) return [];
 
-  // Emit matcher only if none of the events are matcher-ignored.
   const codexMeta = (hook.platform as Record<string, unknown>)["codex"] as
     | Record<string, unknown>
     | undefined;
   const matcher = codexMeta?.["matcher"];
-  const anyMatcherIgnored = supportedEvents.some((e) =>
-    CODEX_MATCHER_IGNORED_EVENTS.has(e as Parameters<typeof CODEX_MATCHER_IGNORED_EVENTS["has"]>[0]),
-  );
-
-  if (!anyMatcherIgnored && matcher !== undefined) {
-    entry["matcher"] = matcher;
-  }
-
-  return entry;
+  return supportedEvents.map((event) => {
+    const group: Record<string, unknown> = { hooks: handlers };
+    if (
+      matcher !== undefined &&
+      !CODEX_MATCHER_IGNORED_EVENTS.has(event as Parameters<typeof CODEX_MATCHER_IGNORED_EVENTS["has"]>[0])
+    ) {
+      group["matcher"] = matcher;
+    }
+    return { event, group };
+  });
 }
-
-// ---------------------------------------------------------------------------
-// IR action → Codex native handler shape
-// Codex only supports { type: "command", command, timeoutMs? }
-// ---------------------------------------------------------------------------
 
 function toCodexHandler(output: unknown): Record<string, unknown> {
   const o = output as Record<string, unknown>;
-  // Translator emits run_command IR shape for "full" and "shim" cases.
-  // Remap type to Codex's "command" handler type.
   if (o["type"] === "run_command") {
     const handler: Record<string, unknown> = {
       command: o["command"],
       type: "command",
     };
-    if (o["timeoutMs"] !== undefined) handler["timeoutMs"] = o["timeoutMs"];
+    if (o["timeoutMs"] !== undefined) {
+      handler["timeout"] = Math.ceil(Number(o["timeoutMs"]) / 1000);
+    }
     return handler;
   }
-  // Fallback: return as-is (should not occur for codex after translation).
   return o;
 }
-
-// ---------------------------------------------------------------------------
-// Stable JSON stringify (sorted keys, 2-space indent, LF)
-// ---------------------------------------------------------------------------
 
 function stableStringify(value: unknown): string {
   return JSON.stringify(sortValue(value), null, 2);

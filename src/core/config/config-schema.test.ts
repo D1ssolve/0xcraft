@@ -23,7 +23,6 @@ describe("ConfigSchema", () => {
         permissionsBeta: false,
         hooksEmitMode: "hooks.json",
         mcpEnvelope: "wrapped",
-        nonInteractive: false,
       },
       claude: {},
       opencode: {},
@@ -41,10 +40,10 @@ describe("ConfigSchema", () => {
       out: { opencode: "dist/opencode", claudeCode: "dist/claude", codex: "dist/codex" },
       enabled: { agents: ["code-explorer"], skills: ["tdd"] },
       disabled: {
-        agents: ["legacy-agent"],
-        skills: ["legacy-skill"],
-        hooks: ["legacy-hook"],
-        mcpServers: ["legacy-mcp"],
+        agents: ["request-policy-agent"],
+        skills: ["old-skill"],
+        hooks: ["old-hook"],
+        mcpServers: ["old-mcp"],
       },
       packs: [{ name: "@0xcraft/agents-pack", version: "1.0.0" }],
       platforms: {
@@ -76,7 +75,6 @@ describe("ConfigSchema", () => {
           permissionsBeta: true,
           hooksEmitMode: "config-inline",
           mcpEnvelope: "direct",
-          nonInteractive: true,
         },
       },
       diagnostics: {

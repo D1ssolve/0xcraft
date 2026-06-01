@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `@anthropic-ai/*` dependencies
 - Removed all built-in agents, skills, hooks, and commands registries
 - Removed v2 adapter architecture (plugin-based three-adapter system)
-- Removed legacy flat config parsing (`disabledAgents`, `enabledAgents`, etc.)
+- Removed unsupported-policy flat config parsing (`disabledAgents`, `enabledAgents`, etc.)
 - Renamed `src/adapters/claude-code/` → `src/adapters/claude/`; platform adapter now named `claude`
 - New CLI surface: `init`, `build`, `convert`, `import`, `doctor`, `pack` (replaces old subcommands)
 - New config path: `.0xcraft/config.json[c]` (replaces `.opencode/0xcraft.{json,jsonc}`)

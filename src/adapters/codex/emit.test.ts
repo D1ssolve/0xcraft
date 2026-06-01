@@ -20,16 +20,16 @@ describe("emitCodexHooks", () => {
     ]);
 
     expect(JSON.parse(result.artifacts[".codex/hooks.json"]!)).toEqual({
-      hooks: [
-        {
-          events: ["PreToolUse"],
-          handlers: [
-            { command: "bun test", timeoutMs: 1000, type: "command" },
-            { command: "node 'script with spaces.js' 'it'\\''s-ok'", timeoutMs: 2000, type: "command" },
-          ],
-          id: "all-primitives",
-        },
-      ],
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              { command: "bun test", timeout: 1, type: "command" },
+              { command: "node 'script with spaces.js' 'it'\\''s-ok'", timeout: 2, type: "command" },
+            ],
+          },
+        ],
+      },
     });
     expect(result.diagnostics.map((diagnostic: Diagnostic) => diagnostic.code)).toEqual([
       "codex.hooks.run_exec.shim",
@@ -49,13 +49,13 @@ describe("emitCodexHooks", () => {
     ]);
 
     expect(JSON.parse(result.artifacts[".codex/hooks.json"]!)).toEqual({
-      hooks: [
-        {
-          events: ["UserPromptSubmit"],
-          handlers: [{ command: "notify", type: "command" }],
-          id: "prompt-submit",
-        },
-      ],
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [{ command: "notify", type: "command" }],
+          },
+        ],
+      },
     });
     expect(result.diagnostics).toContainEqual({
       severity: "info",
@@ -70,7 +70,7 @@ describe("emitCodexHooks", () => {
       hook("notification", ["Notification"], [{ type: "run_command", command: "notify" }]),
     ]);
 
-    expect(JSON.parse(result.artifacts[".codex/hooks.json"]!)).toEqual({ hooks: [] });
+    expect(JSON.parse(result.artifacts[".codex/hooks.json"]!)).toEqual({ hooks: {} });
     expect(result.diagnostics.map((diagnostic: Diagnostic) => diagnostic.code)).toEqual([
       "codex.hooks.event.dropped",
     ]);
@@ -84,20 +84,25 @@ describe("emitCodexHooks", () => {
     ]);
 
     expect(JSON.parse(result.artifacts[".codex/hooks.json"]!)).toEqual({
-      hooks: [
-        {
-          events: ["PreToolUse", "PostToolUse"],
-          handlers: [{ command: "check", type: "command" }],
-          id: "mixed-events",
-        },
-      ],
+      hooks: {
+        PostToolUse: [
+          {
+            hooks: [{ command: "check", type: "command" }],
+          },
+        ],
+        PreToolUse: [
+          {
+            hooks: [{ command: "check", type: "command" }],
+          },
+        ],
+      },
     });
     expect(result.diagnostics.map((diagnostic: Diagnostic) => diagnostic.code)).toEqual([
       "codex.hooks.event.dropped",
     ]);
   });
 
-  test("emits byte-stable hooks JSON and config feature marker", () => {
+  test("emits byte-stable hooks JSON", () => {
     const result = emitCodexHooks([
       hook("stable", ["SessionStart", "PreToolUse"], [
         { type: "run_command", command: "printf ok", timeoutMs: 3000 },
@@ -107,30 +112,34 @@ describe("emitCodexHooks", () => {
     ]);
 
     expect(result.artifacts[".codex/hooks.json"]).toBe(`{
-  "hooks": [
-    {
-      "events": [
-        "SessionStart",
-        "PreToolUse"
-      ],
-      "handlers": [
-        {
-          "command": "printf ok",
-          "timeoutMs": 3000,
-          "type": "command"
-        }
-      ],
-      "id": "stable",
-      "matcher": "Bash(*)"
-    }
-  ]
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "printf ok",
+            "timeout": 3,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash(*)"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "printf ok",
+            "timeout": 3,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash(*)"
+      }
+    ]
+  }
 }
 `);
-    expect(result.artifacts[".codex/config.features.hooks.marker.json"]).toBe(`{
-  "_codexFeaturesHooks": true
-}
-`);
-    expect(result.artifacts[".codex/hooks.json"]).not.toContain("codex_hooks");
   });
 });
 
@@ -164,20 +173,20 @@ describe("emitCodex", () => {
     });
   });
 
-  test("never emits deprecated Codex on-failure approval policy", () => {
+  test("rejects unsupported Codex on-failure approval policy", () => {
     const result = emitCodex([
-      agent("legacy", {
+      agent("unsupported-policy", {
         codex: { approval_policy: "on-failure" } as never,
       }),
     ], {});
 
     expect(result.ok).toBe(false);
-    expect(file(result, ".codex/agents/legacy.toml")).not.toContain("on-failure");
+    expect(file(result, ".codex/agents/unsupported-policy.toml")).not.toContain("on-failure");
     expect(result.diagnostics).toContainEqual({
       severity: "error",
       code: "ERR_CODEX_APPROVAL_POLICY_ON_FAILURE_EMIT",
-      message: "Codex approval_policy 'on-failure' is deprecated and must not be emitted.",
-      details: { agentId: "legacy" },
+      message: "Codex approval_policy 'on-failure' is not supported.",
+      details: { agentId: "unsupported-policy" },
     });
   });
 
@@ -190,15 +199,7 @@ describe("emitCodex", () => {
     expect(result.files.some((entry) => entry.path === ".codex/hooks.json")).toBe(false);
     expect(parseToml(file(result, ".codex/config.toml"))).toEqual({
       features: { hooks: true, multi_agent: true },
-      hooks: {
-        hooks: [
-          {
-            events: ["SessionStart"],
-            handlers: [{ command: "bootstrap", type: "command" }],
-            id: "session",
-          },
-        ],
-      },
+      hooks: { SessionStart: [{ hooks: [{ command: "bootstrap", type: "command" }] }] },
     });
   });
 
@@ -209,13 +210,7 @@ describe("emitCodex", () => {
     ], {});
 
     expect(JSON.parse(file(result, ".codex/hooks.json"))).toEqual({
-      hooks: [
-        {
-          events: ["SessionStart"],
-          handlers: [{ command: "bootstrap", type: "command" }],
-          id: "session",
-        },
-      ],
+      hooks: { SessionStart: [{ hooks: [{ command: "bootstrap", type: "command" }] }] },
     });
     expect(JSON.parse(file(result, ".mcp.json"))).toEqual({
       mcp_servers: {

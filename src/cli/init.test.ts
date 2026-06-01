@@ -46,7 +46,6 @@ describe("runInit", () => {
         permissionsBeta: false,
         hooksEmitMode: "hooks.json",
         mcpEnvelope: "wrapped",
-        nonInteractive: false,
       },
       claude: {},
       opencode: {},

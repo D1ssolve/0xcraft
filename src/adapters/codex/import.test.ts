@@ -30,7 +30,7 @@ describe("importCodex", () => {
       const result = importCodex(dir);
       const agents = result.ir.filter((r) => r.kind === "agent");
       expect(agents.length).toBe(1);
-      const agent = agents[0];
+      const agent = agents[0]!;
       expect(agent.id).toBe("explorer");
       expect(agent.common.name).toBe("explorer");
       expect(agent.common.prompt).toBe("You explore codebases.");
@@ -41,77 +41,22 @@ describe("importCodex", () => {
     }
   });
 
-  it("emits deprecation diagnostic for approval_policy = on-failure and rewrites to on-request", () => {
+  it("imports supported approval_policy unchanged", () => {
     const dir = createTempDir();
     try {
       const agentsDir = join(dir, ".codex", "agents");
       mkdirSync(agentsDir, { recursive: true });
-      writeFileSync(join(agentsDir, "legacy.toml"), [
-        'name = "legacy"',
-        'description = "Legacy agent"',
-        'developer_instructions = "Legacy prompt."',
-        'approval_policy = "on-failure"',
+      writeFileSync(join(agentsDir, "reviewer.toml"), [
+        'name = "reviewer"',
+        'description = "Review agent"',
+        'developer_instructions = "Review prompt."',
+        'approval_policy = "on-request"',
       ].join("\n"));
 
       const result = importCodex(dir);
-      const deprecatedDiag = result.diagnostics.find(
-        (d) => d.code === "codex.approval_policy.on-failure.deprecated",
-      );
-      expect(deprecatedDiag).toBeDefined();
-
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "legacy");
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "reviewer");
       const codex = (agent?.platform as Record<string, Record<string, unknown>>)?.codex;
       expect(codex?.approval_policy).toBe("on-request");
-    } finally {
-      cleanup(dir);
-    }
-  });
-
-  it("rewrites on-failure to never when nonInteractive is true", () => {
-    const dir = createTempDir();
-    try {
-      const agentsDir = join(dir, ".codex", "agents");
-      mkdirSync(agentsDir, { recursive: true });
-      writeFileSync(join(agentsDir, "ci-agent.toml"), [
-        'name = "ci-agent"',
-        'description = "CI agent"',
-        'developer_instructions = "CI prompt."',
-        'approval_policy = "on-failure"',
-      ].join("\n"));
-
-      const result = importCodex(dir, { nonInteractive: true });
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "ci-agent");
-      const codex = (agent?.platform as Record<string, Record<string, unknown>>)?.codex;
-      expect(codex?.approval_policy).toBe("never");
-    } finally {
-      cleanup(dir);
-    }
-  });
-
-  it("emits deprecated diagnostic for codex_hooks alias", () => {
-    const dir = createTempDir();
-    try {
-      const codexDir = join(dir, ".codex");
-      mkdirSync(codexDir, { recursive: true });
-      writeFileSync(join(codexDir, "hooks.json"), JSON.stringify({
-        codex_hooks: [
-          {
-            id: "test-hook",
-            events: ["PreToolUse"],
-            handlers: [{ type: "command", command: "echo test" }],
-          },
-        ],
-      }));
-
-      const result = importCodex(dir);
-      const deprecatedDiag = result.diagnostics.find(
-        (d) => d.code === "codex.hooks.codex_hooks.deprecated",
-      );
-      expect(deprecatedDiag).toBeDefined();
-
-      // Hook should still be imported
-      const hooks = result.ir.filter((r) => r.kind === "hook");
-      expect(hooks.length).toBe(1);
     } finally {
       cleanup(dir);
     }
@@ -123,13 +68,13 @@ describe("importCodex", () => {
       const codexDir = join(dir, ".codex");
       mkdirSync(codexDir, { recursive: true });
       writeFileSync(join(codexDir, "hooks.json"), JSON.stringify({
-        hooks: [
-          {
-            id: "prompt-hook",
-            events: ["PostToolUse"],
-            handlers: [{ type: "prompt", prompt: "Summarize the result" }],
-          },
-        ],
+        hooks: {
+          PostToolUse: [
+            {
+              hooks: [{ type: "prompt", prompt: "Summarize the result" }],
+            },
+          ],
+        },
       }));
 
       const result = importCodex(dir);
@@ -155,7 +100,7 @@ describe("importCodex", () => {
       const result = importCodex(dir);
       const mcps = result.ir.filter((r) => r.kind === "mcp");
       expect(mcps.length).toBe(1);
-      expect(mcps[0].mcpEnvelope.sourceShape).toBe("direct");
+      expect(mcps[0]!.mcpEnvelope.sourceShape).toBe("direct");
     } finally {
       cleanup(dir);
     }
@@ -176,7 +121,7 @@ describe("importCodex", () => {
       const result = importCodex(dir);
       const mcps = result.ir.filter((r) => r.kind === "mcp");
       expect(mcps.length).toBe(1);
-      expect(mcps[0].mcpEnvelope.sourceShape).toBe("wrapped");
+      expect(mcps[0]!.mcpEnvelope.sourceShape).toBe("wrapped");
     } finally {
       cleanup(dir);
     }
@@ -207,23 +152,53 @@ describe("importCodex", () => {
       const codexDir = join(dir, ".codex");
       mkdirSync(codexDir, { recursive: true });
       writeFileSync(join(codexDir, "hooks.json"), JSON.stringify({
-        hooks: [
-          {
-            id: "lint-hook",
-            events: ["PreToolUse", "PostToolUse"],
-            matcher: "Bash",
-            handlers: [{ type: "command", command: "npm run lint" }],
-          },
-        ],
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: "Bash",
+              hooks: [{ type: "command", command: "npm run lint" }],
+            },
+          ],
+        },
       }));
 
       const result = importCodex(dir);
       const hooks = result.ir.filter((r) => r.kind === "hook");
       expect(hooks.length).toBe(1);
-      const hook = hooks[0];
-      expect(hook.id).toBe("lint-hook");
-      expect(hook.common.actions[0].type).toBe("run_command");
+      const hook = hooks[0]!;
+      expect(hook.id).toBe("PreToolUse-1");
+      expect(hook.common.actions[0]!.type).toBe("run_command");
       expect((hook.common.actions[0] as { command: string }).command).toBe("npm run lint");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("imports event-keyed hooks from config.toml", () => {
+    const dir = createTempDir();
+    try {
+      const codexDir = join(dir, ".codex");
+      mkdirSync(codexDir, { recursive: true });
+      writeFileSync(join(codexDir, "config.toml"), [
+        "[features]",
+        "hooks = true",
+        "",
+        "[[hooks.PreToolUse]]",
+        'matcher = "Bash"',
+        "",
+        "[[hooks.PreToolUse.hooks]]",
+        'type = "command"',
+        'command = "echo config"',
+        "timeout = 3",
+      ].join("\n"));
+
+      const result = importCodex(dir);
+      const hooks = result.ir.filter((r) => r.kind === "hook");
+      expect(hooks.length).toBe(1);
+      const hook = hooks[0];
+      expect(hook?.id).toBe("PreToolUse-1");
+      expect(hook?.common.actions[0]?.type).toBe("run_command");
+      expect((hook?.common.actions[0] as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(3000);
     } finally {
       cleanup(dir);
     }

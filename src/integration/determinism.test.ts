@@ -580,7 +580,7 @@ describe("Determinism and idempotence", () => {
         for (const file of artifact.files) {
           const abs2 = path.join(tmpDir2, file.path);
           const mode2 = fs.statSync(abs2).mode & 0o777;
-          expect(mode2).toBe(modes1[file.path]);
+          expect(mode2).toBe(modes1[file.path]!);
         }
       } finally {
         fs.rmSync(tmpDir2, { recursive: true, force: true });

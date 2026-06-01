@@ -20,7 +20,13 @@ export const ClaudeMcpMeta = z.object({
 export const CodexMcpMeta = z.object({
   wrapper: z.literal("mcp_servers").optional(),
   cwd: z.string().optional(),
-  env_vars: z.record(z.string(), z.string()).optional(),
+  env_vars: z.array(z.union([
+    z.string(),
+    z.object({
+      name: z.string(),
+      source: z.string().optional(),
+    }).strict(),
+  ])).optional(),
   bearer_token_env_var: z.string().optional(),
   env_http_headers: z.record(z.string(), z.string()).optional(),
 }).strict();

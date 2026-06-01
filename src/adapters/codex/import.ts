@@ -13,22 +13,10 @@ import { CODEX_HOOK_EVENTS, HOOK_EVENTS } from "../../core/hook-runtime/events";
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
 import { parseToml } from "../../core/loader/toml-parser";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-export interface CodexImportOptions {
-  nonInteractive?: boolean;
-}
-
 export interface CodexImportResult {
   ir: IRResource[];
   diagnostics: Diagnostic[];
 }
-
-// ---------------------------------------------------------------------------
-// Codex config.toml shape
-// ---------------------------------------------------------------------------
 
 interface CodexConfig {
   model?: string;
@@ -49,8 +37,7 @@ interface CodexConfig {
     shell_tool?: boolean;
     unified_exec?: boolean;
   };
-  hooks?: Record<string, unknown>;
-  codex_hooks?: Record<string, unknown>; // deprecated alias
+  hooks?: CodexHooksByEvent;
   mcp_servers?: Record<string, CodexMcpServerDef>;
   permissions?: Record<string, Record<string, unknown>>;
   agents?: {
@@ -62,10 +49,6 @@ interface CodexConfig {
   plugins?: Record<string, { enabled?: boolean; mcp_servers?: Record<string, unknown> }>;
   [key: string]: unknown;
 }
-
-// ---------------------------------------------------------------------------
-// Codex agent TOML shape
-// ---------------------------------------------------------------------------
 
 interface CodexAgentToml {
   name: string;
@@ -88,20 +71,16 @@ interface CodexAgentToml {
   [key: string]: unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Codex hooks.json shape
-// ---------------------------------------------------------------------------
-
 interface CodexHooksJson {
-  hooks?: CodexHookEntry[];
-  codex_hooks?: CodexHookEntry[]; // deprecated alias
+  hooks?: CodexHooksByEvent;
 }
 
-interface CodexHookEntry {
+type CodexHooksByEvent = Record<string, CodexHookGroup[]>;
+
+interface CodexHookGroup {
   id?: string;
-  events?: string[];
   matcher?: string;
-  handlers?: CodexHookHandler[];
+  hooks?: CodexHookHandler[];
 }
 
 interface CodexHookHandler {
@@ -110,23 +89,27 @@ interface CodexHookHandler {
   prompt?: string;
   model?: string;
   async?: boolean;
-  timeoutMs?: number;
+  timeout?: number;
+  statusMessage?: string;
+  commandWindows?: string;
+  command_windows?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Codex .mcp.json shape (two variants)
-// ---------------------------------------------------------------------------
-
 type CodexMcpJson =
-  | { mcp_servers: Record<string, CodexMcpServerDef> }  // wrapped
-  | Record<string, CodexMcpServerDef>;                   // direct
+  | { mcp_servers: Record<string, CodexMcpServerDef> }
+  | Record<string, CodexMcpServerDef>;
+
+interface CodexEnvVarRef {
+  name: string;
+  source?: string;
+}
 
 interface CodexMcpServerDef {
   command?: string;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
-  env_vars?: Record<string, string>;
+  env_vars?: Array<string | CodexEnvVarRef>;
   url?: string;
   bearer_token_env_var?: string;
   http_headers?: Record<string, string>;
@@ -139,10 +122,6 @@ interface CodexMcpServerDef {
   disabled_tools?: string[];
   [key: string]: unknown;
 }
-
-// ---------------------------------------------------------------------------
-// Codex plugin manifest shape
-// ---------------------------------------------------------------------------
 
 interface CodexPluginManifest {
   name?: string;
@@ -161,46 +140,36 @@ interface CodexPluginManifest {
   [key: string]: unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Main import function
-// ---------------------------------------------------------------------------
-
 export function importCodex(
   projectDir: string,
-  options?: CodexImportOptions,
 ): CodexImportResult {
   const absDir = resolve(projectDir);
   const diagnostics: Diagnostic[] = [];
   const ir: IRResource[] = [];
-  const nonInteractive = options?.nonInteractive ?? false;
 
-  // 1. Import agents from .codex/agents/*.toml
   const agentsDir = join(absDir, ".codex", "agents");
   if (existsSync(agentsDir)) {
     for (const entry of sortedReaddir(agentsDir)) {
       if (!entry.endsWith(".toml")) continue;
       const id = entry.replace(/\.toml$/, "");
       const filePath = join(agentsDir, entry);
-      const agent = importCodexAgent(id, filePath, nonInteractive, diagnostics);
+      const agent = importCodexAgent(id, filePath, diagnostics);
       if (agent !== undefined) ir.push(agent);
     }
   }
 
-  // 2. Import hooks from .codex/hooks.json
   const hooksPath = join(absDir, ".codex", "hooks.json");
   if (existsSync(hooksPath)) {
     const hooks = importCodexHooks(hooksPath, diagnostics);
     ir.push(...hooks);
   }
 
-  // 3. Import MCP from .mcp.json
   const mcpPath = join(absDir, ".mcp.json");
   if (existsSync(mcpPath)) {
     const mcps = importCodexMcp(mcpPath, diagnostics);
     ir.push(...mcps);
   }
 
-  // 4. Import MCP from config.toml mcp_servers
   const configPath = join(absDir, ".codex", "config.toml");
   if (existsSync(configPath)) {
     const config = readTomlFile<CodexConfig>(configPath, diagnostics);
@@ -212,19 +181,13 @@ export function importCodex(
         }
       }
 
-      // Check for deprecated codex_hooks in config
-      if (config.codex_hooks !== undefined) {
-        diagnostics.push({
-          severity: "warn",
-          code: "codex.hooks.codex_hooks.deprecated",
-          message: "Config uses deprecated 'codex_hooks' key; use 'hooks' instead.",
-          details: { file: configPath },
-        });
+      if (config.hooks !== undefined) {
+        ir.push(...importCodexHookGroups(config.hooks, configPath, diagnostics));
       }
+
     }
   }
 
-  // 5. Import plugin manifest
   const pluginManifestPath = join(absDir, ".codex-plugin", "plugin.json");
   if (existsSync(pluginManifestPath)) {
     const manifest = readJsonFile<CodexPluginManifest>(pluginManifestPath, diagnostics);
@@ -248,32 +211,26 @@ export function importCodex(
 function importCodexAgent(
   id: string,
   filePath: string,
-  nonInteractive: boolean,
   diagnostics: Diagnostic[],
 ): AgentIR | undefined {
   const data = readTomlFile<CodexAgentToml>(filePath, diagnostics);
   if (data === undefined) return undefined;
 
-  // Required fields
   const name = data.name ?? id;
   const description = data.description ?? "";
   const prompt = data.developer_instructions ?? "";
 
-  // Handle approval_policy deprecation
-  let approvalPolicy = data.approval_policy;
-  let deprecatedOnFailure = false;
+  const approvalPolicy = data.approval_policy;
   if (approvalPolicy === "on-failure") {
     diagnostics.push({
-      severity: "warn",
-      code: "codex.approval_policy.on-failure.deprecated",
-      message: `Agent ${id} uses deprecated approval_policy 'on-failure'; rewriting to '${nonInteractive ? "never" : "on-request"}'.`,
-      details: { id, originalPolicy: "on-failure", rewrittenPolicy: nonInteractive ? "never" : "on-request" },
+      severity: "error",
+      code: "ERR_CODEX_APPROVAL_POLICY_ON_FAILURE_EMIT",
+      message: "Codex approval_policy 'on-failure' is not supported.",
+      details: { id, approvalPolicy },
     });
-    approvalPolicy = nonInteractive ? "never" : "on-request";
-    deprecatedOnFailure = true;
+    return undefined;
   }
 
-  // Build platform.codex
   const platform: Record<string, unknown> = {};
   if (data.nickname_candidates !== undefined) platform.nickname_candidates = data.nickname_candidates;
   if (data.model_reasoning_effort !== undefined) platform.model_reasoning_effort = data.model_reasoning_effort;
@@ -283,19 +240,15 @@ function importCodexAgent(
   if (data.skills !== undefined) platform.skills = data.skills;
   if (data.agents !== undefined) platform.agents = data.agents;
 
-  // mcp_servers: string refs → common.mcpServers, inline → platform
   if (data.mcp_servers !== undefined) {
-    if (Array.isArray(data.mcp_servers) && data.mcp_servers.every((s) => typeof s === "string")) {
-      // String refs go to common
-    } else if (typeof data.mcp_servers === "object" && !Array.isArray(data.mcp_servers)) {
+    if (!Array.isArray(data.mcp_servers) && typeof data.mcp_servers === "object") {
       platform.mcp_servers = data.mcp_servers;
     }
   }
 
-  // sandbox_mode → PermissionIR
   const sandbox = data.sandbox_mode ?? "read-only";
 
-  const common: Record<string, unknown> = {
+  const common: AgentIR["common"] = {
     name,
     description,
     prompt,
@@ -306,14 +259,12 @@ function importCodexAgent(
     common.mcpServers = data.mcp_servers;
   }
 
-  // Build permissions from sandbox_mode
   const permissions = {
     default: "ask" as const,
     tools: {},
     bash: { allow: [], ask: [], deny: [] },
     sandbox,
     platform: { codex: { approval_policy: approvalPolicy, permissions: data.permissions } },
-    _deprecatedOnFailure: deprecatedOnFailure,
     _sources: {},
   };
 
@@ -328,10 +279,6 @@ function importCodexAgent(
   } as AgentIR;
 }
 
-// ---------------------------------------------------------------------------
-// Hook importer
-// ---------------------------------------------------------------------------
-
 function importCodexHooks(
   filePath: string,
   diagnostics: Diagnostic[],
@@ -339,89 +286,71 @@ function importCodexHooks(
   const hooksJson = readJsonFile<CodexHooksJson>(filePath, diagnostics);
   if (hooksJson === undefined) return [];
 
-  // Handle deprecated codex_hooks alias
-  let entries = hooksJson.hooks;
-  if (entries === undefined && hooksJson.codex_hooks !== undefined) {
-    diagnostics.push({
-      severity: "warn",
-      code: "codex.hooks.codex_hooks.deprecated",
-      message: "hooks.json uses deprecated 'codex_hooks' key; use 'hooks' instead.",
-      details: { file: filePath },
-    });
-    entries = hooksJson.codex_hooks;
-  }
+  return hooksJson.hooks === undefined ? [] : importCodexHookGroups(hooksJson.hooks, filePath, diagnostics);
+}
 
-  if (entries === undefined) return [];
-
+function importCodexHookGroups(
+  entries: CodexHooksByEvent,
+  filePath: string,
+  diagnostics: Diagnostic[],
+): HookIR[] {
   const result: HookIR[] = [];
   const validCodexEvents = new Set<string>(CODEX_HOOK_EVENTS);
   const matcherIgnoredEvents = new Set(["UserPromptSubmit", "Stop"]);
 
-  for (const entry of entries) {
-    const hookId = entry.id ?? `codex-hook-${result.length + 1}`;
-    const actions: HookActionIR[] = [];
-    const hookDiagnostics: Diagnostic[] = [];
-
-    // Validate events
-    const validEvents: HookEvent[] = [];
-    if (entry.events !== undefined) {
-      for (const event of entry.events) {
-        if (!validCodexEvents.has(event)) {
-          hookDiagnostics.push({
-            severity: "warn",
-            code: "codex.hooks.event.dropped",
-            message: `Codex hook ${hookId} has unsupported event '${event}'; dropping.`,
-            details: { hookId, event },
-          });
-          continue;
-        }
-        validEvents.push(event as HookEvent);
-
-        // Matcher ignored for certain events
-        if (matcherIgnoredEvents.has(event) && entry.matcher !== undefined) {
-          hookDiagnostics.push({
-            severity: "info",
-            code: "codex.hooks.matcher.ignored",
-            message: `Codex ignores matcher for event '${event}'.`,
-            details: { hookId, event },
-          });
-        }
-      }
+  for (const [event, groups] of Object.entries(entries).sort(([left], [right]) => left.localeCompare(right))) {
+    if (!validCodexEvents.has(event)) {
+      diagnostics.push({
+        severity: "warn",
+        code: "codex.hooks.event.dropped",
+        message: `Codex hook has unsupported event '${event}'; dropping.`,
+        details: { event },
+      });
+      continue;
     }
 
-    if (validEvents.length === 0) continue;
+    for (const [groupIdx, entry] of groups.entries()) {
+      const hookId = entry.id ?? `${event}-${groupIdx + 1}`;
+      const actions: HookActionIR[] = [];
+      const hookDiagnostics: Diagnostic[] = [];
 
-    // Map handlers
-    if (entry.handlers !== undefined) {
-      for (const handler of entry.handlers) {
+      if (matcherIgnoredEvents.has(event) && entry.matcher !== undefined) {
+        hookDiagnostics.push({
+          severity: "info",
+          code: "codex.hooks.matcher.ignored",
+          message: `Codex ignores matcher for event '${event}'.`,
+          details: { hookId, event },
+        });
+      }
+
+      for (const handler of entry.hooks ?? []) {
         const action = mapCodexHandler(handler, hookId, hookDiagnostics);
         if (action !== undefined) actions.push(action);
       }
+
+      if (actions.length === 0) continue;
+
+      const platform: Record<string, unknown> = {};
+      if (entry.matcher !== undefined) platform.matcher = entry.matcher;
+
+      result.push({
+        id: hookId,
+        kind: "hook",
+        sourcePath: filePath,
+        common: {
+          name: hookId,
+          description: `Imported Codex hook`,
+          events: [event as HookEvent],
+          actions,
+        },
+        platform: { codex: Object.keys(platform).length > 0 ? platform : undefined },
+        diagnostics: hookDiagnostics.length > 0 ? hookDiagnostics : undefined,
+        provenance: { importedFrom: "codex", sourceFiles: [filePath] },
+        _sources: {},
+      } as HookIR);
+
+      diagnostics.push(...hookDiagnostics);
     }
-
-    if (actions.length === 0) continue;
-
-    const platform: Record<string, unknown> = {};
-    if (entry.matcher !== undefined) platform.matcher = entry.matcher;
-
-    result.push({
-      id: hookId,
-      kind: "hook",
-      sourcePath: filePath,
-      common: {
-        name: hookId,
-        description: `Imported Codex hook`,
-        events: validEvents,
-        actions,
-      },
-      platform: { codex: Object.keys(platform).length > 0 ? platform : undefined },
-      diagnostics: hookDiagnostics.length > 0 ? hookDiagnostics : undefined,
-      provenance: { importedFrom: "codex", sourceFiles: [filePath] },
-      _sources: {},
-    } as HookIR);
-
-    // Merge hook-level diagnostics into top-level result
-    diagnostics.push(...hookDiagnostics);
   }
 
   return result;
@@ -437,7 +366,7 @@ function mapCodexHandler(
       return {
         type: "run_command",
         command: handler.command ?? "",
-        timeoutMs: handler.timeoutMs,
+        timeoutMs: handler.timeout === undefined ? undefined : handler.timeout * 1000,
       };
     case "prompt":
       diagnostics.push({
@@ -468,10 +397,6 @@ function mapCodexHandler(
   }
 }
 
-// ---------------------------------------------------------------------------
-// MCP importer
-// ---------------------------------------------------------------------------
-
 function importCodexMcp(
   filePath: string,
   diagnostics: Diagnostic[],
@@ -479,7 +404,6 @@ function importCodexMcp(
   const raw = readJsonFile<Record<string, unknown>>(filePath, diagnostics);
   if (raw === undefined) return [];
 
-  // Detect shape: wrapped (has mcp_servers key) or direct
   let isWrapped = false;
   let servers: Record<string, CodexMcpServerDef>;
 
@@ -487,7 +411,6 @@ function importCodexMcp(
     isWrapped = true;
     servers = raw.mcp_servers as Record<string, CodexMcpServerDef>;
   } else {
-    // Direct map: all top-level keys are server IDs
     servers = raw as Record<string, CodexMcpServerDef>;
   }
 
@@ -531,7 +454,6 @@ function mapCodexMcpServer(
   if (transport === "stdio") {
     if (def.command !== undefined) common.command = def.command;
     if (def.args !== undefined) common.args = def.args;
-    // env takes precedence over env_vars for common
     if (def.env !== undefined) common.env = def.env;
   }
 
@@ -539,7 +461,6 @@ function mapCodexMcpServer(
     if (def.url !== undefined) common.url = def.url;
   }
 
-  // Codex-specific platform fields
   const platform: Record<string, unknown> = {};
   if (def.cwd !== undefined) platform.cwd = def.cwd;
   if (def.env_vars !== undefined) platform.env_vars = def.env_vars;
@@ -565,10 +486,6 @@ function mapCodexMcpServer(
     _sources: {},
   } as McpServerIR;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function readTomlFile<T>(filePath: string, diagnostics: Diagnostic[]): T | undefined {
   try {

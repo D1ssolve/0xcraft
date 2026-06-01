@@ -19,7 +19,6 @@ const DEFAULT_CODEX_PLATFORM = {
   permissionsBeta: false,
   hooksEmitMode: "hooks.json" as const,
   mcpEnvelope: "wrapped" as const,
-  nonInteractive: false,
 };
 const DEFAULT_PLATFORMS = { codex: DEFAULT_CODEX_PLATFORM, claude: {}, opencode: {} };
 
@@ -73,7 +72,13 @@ const codexAgentExtensionSchema = z
 const codexMcpExtensionSchema = z
   .object({
     cwd: z.string().optional(),
-    env_vars: z.array(z.string()).optional(),
+    env_vars: z.array(z.union([
+      z.string(),
+      z.object({
+        name: z.string(),
+        source: z.string().optional(),
+      }).strict(),
+    ])).optional(),
     bearer_token_env_var: z.string().optional(),
     env_http_headers: z.record(z.string(), z.string()).optional(),
   })
@@ -97,7 +102,6 @@ const codexPlatformSchema = z
     permissionsBeta: z.boolean().default(false),
     hooksEmitMode: z.enum(["hooks.json", "config-inline"]).default("hooks.json"),
     mcpEnvelope: z.enum(["wrapped", "direct"]).default("wrapped"),
-    nonInteractive: z.boolean().default(false),
   })
   .strict()
   .superRefine((value, ctx) => {

@@ -260,15 +260,15 @@ describe("Hook primitive cross-runtime", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Event coverage — 30 events × 3 platforms
+  // Event coverage — all known hook events × 3 platforms
   // -------------------------------------------------------------------------
 
   describe("Event coverage", () => {
-    test("HOOK_EVENTS has 30 entries", () => {
-      expect(HOOK_EVENTS.length).toBe(30);
+    test("HOOK_EVENTS has 31 entries", () => {
+      expect(HOOK_EVENTS.length).toBe(31);
     });
 
-    test("opencode: all 30 events emit with no diagnostic", () => {
+    test("opencode: all events emit with no diagnostic", () => {
       for (const event of HOOK_EVENTS) {
         const result = translateEventForPlatform(event, "opencode");
         expect(result.output).toBe(event);
@@ -276,7 +276,7 @@ describe("Hook primitive cross-runtime", () => {
       }
     });
 
-    test("claude: all 30 events emit with no diagnostic", () => {
+    test("claude: all events emit with no diagnostic", () => {
       for (const event of HOOK_EVENTS) {
         const result = translateEventForPlatform(event, "claude");
         expect(result.output).toBe(event);
@@ -329,7 +329,7 @@ describe("Hook primitive cross-runtime", () => {
       }
     });
 
-    test("codex: 30 events × codex = correct split (unsupported + matcher-ignored + supported)", () => {
+    test("codex: all events × codex = correct split (unsupported + matcher-ignored + supported)", () => {
       let dropped = 0;
       let matcherIgnored = 0;
       let fullySupported = 0;
@@ -345,7 +345,7 @@ describe("Hook primitive cross-runtime", () => {
         }
       }
 
-      expect(dropped + matcherIgnored + fullySupported).toBe(30);
+      expect(dropped + matcherIgnored + fullySupported).toBe(HOOK_EVENTS.length);
       expect(dropped).toBe(CODEX_UNSUPPORTED_EVENTS.size);
       expect(matcherIgnored).toBe(CODEX_MATCHER_IGNORED_EVENTS.size);
     });

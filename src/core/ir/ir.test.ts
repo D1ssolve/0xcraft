@@ -143,7 +143,7 @@ describe("v3 IR schemas", () => {
     }
   });
 
-  test("Codex agent approval_policy excludes deprecated on-failure", () => {
+  test("Codex agent approval_policy rejects on-failure", () => {
     expect(() => CodexAgentMeta.parse({ approval_policy: "on-request" })).not.toThrow();
     expect(() => CodexAgentMeta.parse({ approval_policy: { mode: "ask", writes: "allow" } })).not.toThrow();
     expect(() => CodexAgentMeta.parse({ approval_policy: "on-failure" })).toThrow(z.ZodError);
@@ -342,7 +342,6 @@ function validPermissionFixture() {
       claude: { ["permission" + "Mode"]: "plan" },
       codex: { approval_policy: "on-request", permissions: { write: "ask" }, profiles: { safe: {} } },
     },
-    _deprecatedOnFailure: false,
     _sources: { default: "agent.codex.toml" },
   };
 }

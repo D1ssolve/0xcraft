@@ -187,7 +187,6 @@ function emitForTarget(
     emitMarketplace: codex.emitMarketplace,
     hooksEmitMode: codex.hooksEmitMode,
     mcpEnvelope: codex.mcpEnvelope,
-    nonInteractive: codex.nonInteractive,
     permissionsBeta: codex.permissionsBeta,
   } as Parameters<typeof emitCodex>[1]);
 }

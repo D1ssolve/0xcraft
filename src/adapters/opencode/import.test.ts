@@ -33,7 +33,7 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const agents = result.ir.filter((r) => r.kind === "agent");
       expect(agents.length).toBe(1);
-      const agent = agents[0];
+      const agent = agents[0]!;
       expect(agent.id).toBe("code-explorer");
       expect(agent.common.name).toBe("code-explorer");
       expect(agent.common.description).toBe("Read-only codebase discovery");
@@ -63,7 +63,7 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const skills = result.ir.filter((r) => r.kind === "skill");
       expect(skills.length).toBe(1);
-      const skill = skills[0];
+      const skill = skills[0]!;
       expect(skill.id).toBe("caveman");
       expect(skill.common.name).toBe("caveman");
       expect(skill.common.body).toBe("Respond terse like smart caveman.");
@@ -115,7 +115,7 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const mcps = result.ir.filter((r) => r.kind === "mcp");
       expect(mcps.length).toBe(1);
-      const mcp = mcps[0];
+      const mcp = mcps[0]!;
       expect(mcp.id).toBe("my-server");
       expect(mcp.common.transport).toBe("stdio");
       expect(mcp.common.command).toBe("npx");
@@ -143,7 +143,7 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const mcps = result.ir.filter((r) => r.kind === "mcp");
       expect(mcps.length).toBe(1);
-      const mcp = mcps[0];
+      const mcp = mcps[0]!;
       expect(mcp.common.transport).toBe("http");
       expect(mcp.common.url).toBe("https://example.com/mcp");
       expect(mcp.common.headers).toEqual({ Authorization: "Bearer token" });
@@ -168,7 +168,7 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const commands = result.ir.filter((r) => r.kind === "command");
       expect(commands.length).toBe(1);
-      const cmd = commands[0];
+      const cmd = commands[0]!;
       expect(cmd.id).toBe("review");
       expect(cmd.common.template).toBe("Review the current changes for production readiness.");
       expect(cmd.common.agent).toBe("code-reviewer");
@@ -191,13 +191,14 @@ describe("importOpenCode", () => {
       const result = importOpenCode(dir);
       const hooks = result.ir.filter((r) => r.kind === "hook");
       expect(hooks.length).toBe(1);
-      const hook = hooks[0];
+      const hook = hooks[0]!;
       expect(hook.id).toBe("my-hook");
-      expect(hook.common.actions[0].type).toBe("runtime_code");
-      expect(hook.common.actions[0].runtime).toBe("opencode");
+      const action = hook.common.actions[0]!;
+      expect(action.type).toBe("runtime_code");
+      if (action.type !== "runtime_code") throw new Error("expected runtime_code action");
+      expect(action.runtime).toBe("opencode");
       expect(hook.runtimeFiles?.opencodeJs).toBeDefined();
 
-      // Should have opaque diagnostic
       const opaqueDiag = result.diagnostics.find(
         (d) => d.code === "opencode.hook.runtime_code_opaque",
       );

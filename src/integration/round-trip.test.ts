@@ -624,10 +624,13 @@ describe("Full round-trip byte comparison", () => {
     expect(r1.artifact).toBeDefined();
     expect(r2.artifact).toBeDefined();
 
-    const sortedFiles = (files: typeof r1.artifact!.files) =>
+    const sortedFiles = (files: NonNullable<typeof r1.artifact>["files"]) =>
       [...files].sort((a, b) => a.path.localeCompare(b.path));
 
-    for (const [f1, f2] of sortedFiles(r1.artifact!.files).map((f, i) => [f, sortedFiles(r2.artifact!.files)[i]] as const)) {
+    const sorted1 = sortedFiles(r1.artifact!.files);
+    const sorted2 = sortedFiles(r2.artifact!.files);
+    for (const [index, f1] of sorted1.entries()) {
+      const f2 = sorted2[index]!;
       expect(f1.path).toBe(f2.path);
       expect(f1.content).toBe(f2.content);
     }

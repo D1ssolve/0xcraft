@@ -57,7 +57,6 @@ function configWithPacks(packs: Array<{ name: string; version: string }>): strin
         emitApps: false,
         permissionsBeta: false,
         hooksEmitMode: "hooks.json",
-        nonInteractive: false,
       },
     },
     diagnostics: {},
