@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { AgentIR, CommandIR, HookIR, IRResource, McpServerIR, SkillIR } from "../../core/ir";
 import { emitOpenCode, emitOpenCodeHooks } from "./emit";
@@ -328,9 +329,9 @@ describe("emitOpenCode", () => {
     expect(artifact.files.some((file) => file.path === "opencode.json")).toBe(false);
     expect(fileContent(artifact, ".opencode-plugin/agents/reviewer.md")).toContain("Read .opencode-plugin/agents/reviewer/references/guide.md.");
     expect(fileContent(artifact, ".opencode-plugin/skills/tdd/SKILL.md")).toContain("Use .opencode-plugin/skills/tdd/references/examples.md.");
-    expect(fileContent(artifact, ".opencode-plugin/index.js")).toBe(
-      "// 0xcraft-generated OpenCode plugin (plugin mode)\n// No hooks defined.\nexport default async function hook() {\n  return {};\n}\n",
-    );
+    expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain("export default async function zeroXCraftPlugin(input, options) {");
+    expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain("config: async (config) => {");
+    expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain("config.agent = { ...(config.agent ?? {}), ...agents };");
 
     expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual({
       author: "Acme",
@@ -340,20 +341,8 @@ describe("emitOpenCode", () => {
       license: "MIT",
       main: "index.js",
       name: "@acme/opencode-plugin",
-      opencode: {
-        agents: ["reviewer"],
-        commands: ["ship"],
-        mcp: {
-          "local-fs": {
-            command: ["node", "server.js"],
-            enabled: true,
-            environment: { ROOT: "/repo" },
-            timeout: 30,
-            type: "local",
-          },
-        },
-        schemaVersion: "1",
-        skills: ["tdd"],
+      peerDependencies: {
+        "@opencode-ai/sdk": ">=1.0.0",
       },
       repository: "https://github.com/acme/plugin",
       type: "module",
@@ -376,6 +365,7 @@ describe("emitOpenCode", () => {
 
     expect(artifact.files.map((file) => file.path)).toEqual([".opencode-plugin/index.js", ".opencode-plugin/package.json"]);
     const index = fileContent(artifact, ".opencode-plugin/index.js");
+    expect(index).toContain("export default async function zeroXCraftPlugin(input, options) {");
     expect(index.indexOf("async function hook_alpha_hook(input, ctx)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, ctx)"));
     expect(index).toContain("await hook_alpha_hook(input, ctx);");
     expect(index).toContain("await hook_zeta_hook(input, ctx);");
@@ -395,6 +385,54 @@ describe("emitOpenCode", () => {
     expect(index).toContain(`import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}")`);
     expect(index).toContain("await hook_unicode_runtime(input, ctx);");
     expect(artifact.ok).toBe(true);
+  });
+
+  test("plugin mode config hook mutates OpenCode config with agents, commands, skills path, and mcp", async () => {
+    const artifact = emitOpenCode([
+      agentFixture({ id: "reviewer", platform: { opencode: { tools: { read: true }, enabled: true } } }),
+      skillFixture({ id: "tdd", platform: { opencode: { license: "MIT", metadata: { owner: "qa" } } as never } }),
+      commandFixture({ id: "ship" }),
+      mcpFixture({ id: "local-fs", transport: "stdio" }),
+    ], {
+      mode: "plugin",
+      plugin: { packageName: "@acme/opencode-plugin" },
+    });
+    const module = await importGeneratedPlugin(artifact);
+
+    expect(module.default).toEqual(expect.any(Function));
+
+    const hooks = await module.default({ directory: "/repo" }, {});
+    const config: Record<string, unknown> = {};
+    await hooks.config(config);
+
+    expect((config.agent as Record<string, unknown>).reviewer).toEqual(expect.objectContaining({
+      description: "Reviews code.",
+      enabled: true,
+      mode: "subagent",
+      model: "gpt-5.5",
+      name: "Reviewer",
+      prompt: "Review code carefully.\n",
+      temperature: 0.2,
+      tools: { read: true },
+    }));
+    expect((config.skills as { paths: string[] }).paths).toHaveLength(1);
+    expect((config.skills as { paths: string[] }).paths[0]).toEndWith(".opencode-plugin/skills");
+    expect((config.command as Record<string, unknown>).ship).toEqual(expect.objectContaining({
+      agent: "reviewer",
+      description: "Prepare release.",
+      model: "gpt-5.5",
+      name: "Ship",
+      template: "Ship {{target}} safely.\n",
+    }));
+    expect(config.mcp).toEqual({
+      "local-fs": {
+        command: ["node", "server.js"],
+        enabled: true,
+        environment: { ROOT: "/repo" },
+        timeout: 30,
+        type: "local",
+      },
+    });
   });
 
   test("plugin mode duplicate hook ids produce error and no index artifact", () => {
@@ -452,6 +490,17 @@ function fileContent(artifact: ReturnType<typeof emitOpenCode>, path: string): s
   const file = artifact.files.find((candidate) => candidate.path === path);
   expect(file).toBeDefined();
   return file?.content ?? "";
+}
+
+async function importGeneratedPlugin(artifact: ReturnType<typeof emitOpenCode>): Promise<{ default: (input: unknown, options: unknown) => Promise<{ config: (ctx: Record<string, unknown>) => Promise<void> }> }> {
+  const tempDir = mkdtempSync(join(tmpdir(), "0xcraft-opencode-plugin-"));
+  for (const file of artifact.files) {
+    const path = join(tempDir, file.path);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, file.content, "utf8");
+  }
+
+  return await import(`${pathToFileURL(join(tempDir, ".opencode-plugin", "index.js")).href}?t=${Date.now()}`);
 }
 
 function agentFixture(input: {

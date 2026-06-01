@@ -5,6 +5,7 @@ import { describe, expect, it } from "bun:test";
 
 import { importClaude } from "./import";
 import type { ClaudeImportMode } from "./import";
+import type { AgentIR, SkillIR } from "../../core/ir";
 
 function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), "claude-import-"));
@@ -104,7 +105,7 @@ describe("importClaude", () => {
       writeFileSync(join(referencesDir, "Bad File.md"), "skip me\n");
 
       const result = importClaude(dir, { mode: "claude-plugin" });
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "reviewer");
+      const agent = result.ir.find((r): r is AgentIR => r.kind === "agent" && r.id === "reviewer");
 
       expect(agent?.references).toEqual({ "guide.md": "Review guide\n" });
       expect(agent?.provenance?.sourceFiles).toContain(join(referencesDir, "guide.md"));
@@ -131,7 +132,7 @@ describe("importClaude", () => {
       writeFileSync(join(referencesDir, "template.txt"), "Plan template\n");
 
       const result = importClaude(dir, { mode: "claude-plugin" });
-      const skill = result.ir.find((r) => r.kind === "skill" && r.id === "planner");
+      const skill = result.ir.find((r): r is SkillIR => r.kind === "skill" && r.id === "planner");
 
       expect(skill?.references).toEqual({ "template.txt": "Plan template\n" });
       expect(skill?.provenance?.sourceFiles).toContain(join(referencesDir, "template.txt"));
@@ -188,7 +189,7 @@ describe("importClaude", () => {
       writeFileSync(join(referencesDir, "notes.md"), "Build notes\n");
 
       const result = importClaude(dir, { mode: "claude-subagent" });
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "builder");
+      const agent = result.ir.find((r): r is AgentIR => r.kind === "agent" && r.id === "builder");
 
       expect(agent?.references).toEqual({ "notes.md": "Build notes\n" });
       expect(agent?.provenance?.sourceFiles).toContain(join(referencesDir, "notes.md"));

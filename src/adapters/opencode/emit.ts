@@ -78,7 +78,10 @@ export function emitOpenCode(ir: IRResource[], opts: EmitOptions = {}): Platform
   }
 
   const hookResult = isPlugin
-    ? emitPluginModeHooks(hooks)
+    ? emitPluginModeHooks(hooks, {
+        packageName: pluginModuleId(opts.plugin?.packageName),
+        mcp: config.mcp ?? {},
+      })
     : emitOpenCodeHooks(hooks, resolver);
   diagnostics.push(...hookResult.diagnostics);
   for (const [path, content] of Object.entries(hookResult.artifacts)) {
@@ -87,7 +90,7 @@ export function emitOpenCode(ir: IRResource[], opts: EmitOptions = {}): Platform
 
   if (isPlugin) {
     if (!hookResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      files.push(emitPluginPackageJson(ir, opts.plugin, diagnostics, config));
+      files.push(emitPluginPackageJson(opts.plugin, diagnostics));
     }
   } else {
     const pluginPaths = Object.keys(hookResult.artifacts)
@@ -198,10 +201,8 @@ function emitCommandFile(command: CommandIR, resolver: OpenCodePathResolver): Pl
 }
 
 function emitPluginPackageJson(
-  ir: IRResource[],
   opts: OpenCodePluginMetadata | undefined,
   diagnostics: Diagnostic[],
-  config: OpenCodeConfig,
 ): PlatformArtifactFile {
   const packageName = opts?.packageName ?? "0xcraft-opencode-plugin";
   if (!isValidNpmPackageName(packageName)) {
@@ -224,23 +225,12 @@ function emitPluginPackageJson(
     homepage: opts?.homepage,
     repository: opts?.repository,
     keywords: opts?.keywords === undefined ? undefined : [...opts.keywords],
-    opencode: {
-      schemaVersion: "1",
-      agents: sortedIds(ir, "agent"),
-      skills: sortedIds(ir, "skill"),
-      commands: sortedIds(ir, "command"),
-      mcp: config.mcp ?? {},
+    peerDependencies: {
+      "@opencode-ai/sdk": ">=1.0.0",
     },
   }));
 
   return { path: ".opencode-plugin/package.json", content: `${stableStringify(manifest)}\n`, mode: 0o644 };
-}
-
-function sortedIds(ir: IRResource[], kind: IRResource["kind"]): string[] {
-  return ir
-    .filter((resource) => resource.kind === kind)
-    .map((resource) => resource.id)
-    .sort((left, right) => left.localeCompare(right));
 }
 
 function isValidNpmPackageName(packageName: string): boolean {
@@ -249,6 +239,12 @@ function isValidNpmPackageName(packageName: string): boolean {
     && !packageName.startsWith(".")
     && !packageName.startsWith("_")
     && !packageName.includes(" ");
+}
+
+function pluginModuleId(packageName: string | undefined): string {
+  return packageName !== undefined && isValidNpmPackageName(packageName)
+    ? packageName
+    : "0xcraft-opencode-plugin";
 }
 
 function addMcpConfig(config: OpenCodeConfig, mcp: McpServerIR, diagnostics: Diagnostic[]): void {
@@ -396,7 +392,15 @@ export function emitOpenCodeHooks(
   return { artifacts, diagnostics };
 }
 
-export function emitPluginModeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
+interface PluginModeIndexOptions {
+  readonly packageName: string;
+  readonly mcp: Record<string, JsonObject>;
+}
+
+export function emitPluginModeHooks(
+  hooks: HookIR[],
+  options: PluginModeIndexOptions = { packageName: "0xcraft-opencode-plugin", mcp: {} },
+): OpenCodeHookEmitResult {
   const diagnostics: Diagnostic[] = [];
   const sortedHooks = [...hooks].sort((left, right) => left.id.localeCompare(right.id));
   const seen = new Set<string>();
@@ -416,7 +420,7 @@ export function emitPluginModeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
 
   if (sortedHooks.length === 0) {
     return {
-      artifacts: { "index.js": emitNoopPluginModeStub() },
+      artifacts: { "index.js": emitPluginModeIndex([], [], options) },
       diagnostics,
     };
   }
@@ -448,24 +452,15 @@ export function emitPluginModeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
 
   if (functions.length === 0) {
     return {
-      artifacts: { "index.js": emitNoopPluginModeStub() },
+      artifacts: { "index.js": emitPluginModeIndex([], [], options) },
       diagnostics,
     };
   }
 
   return {
-    artifacts: { "index.js": emitPluginModeIndex(functions, dispatcherCalls) },
+    artifacts: { "index.js": emitPluginModeIndex(functions, dispatcherCalls, options) },
     diagnostics,
   };
-}
-
-function emitNoopPluginModeStub(): string {
-  return normalizeLf(`// 0xcraft-generated OpenCode plugin (plugin mode)
-// No hooks defined.
-export default async function hook() {
-  return {};
-}
-`);
 }
 
 function pluginHookFunctionName(id: string): string {
@@ -505,21 +500,159 @@ function emitPluginModeHookFunction(
 }`);
 }
 
-function emitPluginModeIndex(functions: string[], dispatcherCalls: string[]): string {
+function emitPluginModeIndex(
+  functions: string[],
+  dispatcherCalls: string[],
+  options: PluginModeIndexOptions,
+): string {
+  const eventHook = dispatcherCalls.length === 0
+    ? ""
+    : `\n    event: async (ctx) => {\n${dispatcherCalls.join("\n")}\n    },\n`;
+
   return normalizeLf(`// 0xcraft-generated OpenCode plugin (plugin mode)
 import { spawn } from "node:child_process";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const mcp = ${stableStringify(options.mcp)};
+
+${emitPluginModeLoaders()}
 
 ${functions.join("\n\n")}
 
-export default async function hook(input) {
-  return {
-    event: async (ctx) => {
-${dispatcherCalls.join("\n")}
+export default async function zeroXCraftPlugin(input, options) {
+  const agents = loadAgents();
+  const commands = loadCommands();
+  const skillsDir = join(__dirname, "skills");
+
+  return {${eventHook}
+    config: async (config) => {
+      if (Object.keys(agents).length > 0) config.agent = { ...(config.agent ?? {}), ...agents };
+      if (Object.keys(commands).length > 0) config.command = { ...(config.command ?? {}), ...commands };
+      if (Object.keys(mcp).length > 0) config.mcp = { ...(config.mcp ?? {}), ...mcp };
+      if (existsSync(skillsDir)) {
+        const skills = config.skills ?? {};
+        const paths = Array.isArray(skills.paths) ? skills.paths : [];
+        config.skills = { ...skills, paths: [...paths, skillsDir] };
+      }
     },
   };
 }
 
 ${emitRuntimeHelpers()}`);
+}
+
+function emitPluginModeLoaders(): string {
+  return normalizeLf(String.raw`function loadAgents() {
+  const agents = {};
+  const agentsDir = join(__dirname, "agents");
+  if (!existsSync(agentsDir)) return agents;
+
+  for (const entry of readdirSync(agentsDir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const agentId = entry.name.slice(0, -3);
+    const filePath = join(agentsDir, entry.name);
+    const { data, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
+    agents[agentId] = { ...data, prompt: resolveReferenceTokens(body, join("agents", agentId, "references")) };
+  }
+
+  return agents;
+}
+
+function loadCommands() {
+  const commands = {};
+  const commandsDir = join(__dirname, "commands");
+  if (!existsSync(commandsDir)) return commands;
+
+  for (const entry of readdirSync(commandsDir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const commandId = entry.name.slice(0, -3);
+    const filePath = join(commandsDir, entry.name);
+    const { data, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
+    commands[commandId] = { ...data, template: body };
+  }
+
+  return commands;
+}
+
+function parseFrontmatter(content) {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return { data: {}, body: content };
+  return { data: parseFrontmatterYaml(match[1]), body: match[2] ?? "" };
+}
+
+function parseFrontmatterYaml(header) {
+  const data = {};
+  const lines = header.split("\n");
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined || line.trim() === "") continue;
+    const match = line.match(/^([^:]+):(?:\s*(.*))?$/);
+    if (!match) continue;
+
+    const key = match[1].trim();
+    const rawValue = match[2] ?? "";
+    if (rawValue.trim() !== "") {
+      data[key] = parseScalar(rawValue);
+      continue;
+    }
+
+    const nextLine = lines[index + 1] ?? "";
+    if (/^\s*-\s+/.test(nextLine)) {
+      const values = [];
+      while (/^\s*-\s+/.test(lines[index + 1] ?? "")) {
+        index++;
+        values.push(parseScalar((lines[index].match(/^\s*-\s+(.*)$/) ?? ["", ""])[1]));
+      }
+      data[key] = values;
+      continue;
+    }
+
+    if (/^\s+[^:\s][^:]*:/.test(nextLine)) {
+      const nested = {};
+      while (/^\s+[^:\s][^:]*:/.test(lines[index + 1] ?? "")) {
+        index++;
+        const nestedMatch = lines[index].match(/^\s+([^:]+):\s*(.*)$/);
+        if (nestedMatch) nested[nestedMatch[1].trim()] = parseScalar(nestedMatch[2] ?? "");
+      }
+      data[key] = nested;
+      continue;
+    }
+
+    data[key] = "";
+  }
+
+  return data;
+}
+
+function parseScalar(value) {
+  const trimmed = value.trim();
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function resolveReferenceTokens(content, referencesDir) {
+  return content.replaceAll("{{references_dir}}", referencesDir);
+}`);
 }
 
 function emitHookPlugin(hook: HookIR, actions: HookActionIR[], diagnostics: Diagnostic[]): string {

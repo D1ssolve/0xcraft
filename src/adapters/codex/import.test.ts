@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 
 import { importCodex } from "./import";
+import type { AgentIR } from "../../core/ir";
 
 function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), "codex-import-"));
@@ -57,7 +58,7 @@ describe("importCodex", () => {
       writeFileSync(join(referencesDir, "Bad File.md"), "skip me");
 
       const result = importCodex(dir);
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "explorer");
+      const agent = result.ir.find((r): r is AgentIR => r.kind === "agent" && r.id === "explorer");
 
       expect(agent?.references).toEqual({
         "guide.md": "# Guide\nUse this guide.",
@@ -80,7 +81,7 @@ describe("importCodex", () => {
       ].join("\n"));
 
       const result = importCodex(dir);
-      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "reviewer");
+      const agent = result.ir.find((r): r is AgentIR => r.kind === "agent" && r.id === "reviewer");
 
       expect(agent?.references).toBeUndefined();
     } finally {

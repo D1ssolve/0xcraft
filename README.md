@@ -16,7 +16,7 @@ The goal is not to invent a fourth agent format. The goal is to keep one source 
 
 | Platform | Import | Emit | Notes |
 | --- | --- | --- | --- |
-| OpenCode | `opencode.json/jsonc`, `.opencode/agents/*.md`, `.opencode/skills/*.md`, `.opencode/commands/*.md`, `.opencode/plugins/*` | `opencode.json` plus `.opencode/*` files | Project-local files only. OpenCode runtime plugins are represented as runtime-specific hooks. |
+| OpenCode | `opencode.json/jsonc`, `.opencode/agents/*.md`, `.opencode/skills/*.md`, `.opencode/commands/*.md`, `.opencode/plugins/*` | `opencode.json` plus `.opencode/*` files (filesystem mode), or `.opencode-plugin/` npm package (plugin mode) | Filesystem mode emits project-local config. Plugin mode emits a distributable npm package with `package.json`, consolidated `index.js`, and resource files. |
 | Claude Code | `.claude-plugin/` plugin tree or `.claude/agents/` subagents | `claude-plugin` or `claude-subagent` mode | Plugin mode emits a plugin manifest plus agent, skill, hook, and MCP files. Subagent mode emits `.claude/agents/*.md`. |
 | Codex | `.codex/config.toml`, `.codex/agents/*.toml`, `.codex/hooks.json`, `.mcp.json` | `.codex/config.toml`, `.codex/agents/*.toml`, `.codex/hooks.json`, optional plugin/marketplace files | Hooks use the current event-keyed Codex shape. Only command handlers are runnable in Codex today; prompt and agent handlers are imported but diagnosed as skipped. |
 
@@ -47,6 +47,14 @@ bun test
 0xcraft doctor --target all
 0xcraft build --target codex --force
 ```
+
+Build an OpenCode plugin (distributable npm package):
+
+```bash
+0xcraft build --target opencode --opencode-mode plugin --force
+```
+
+This creates `.opencode-plugin/` with `package.json`, `index.js`, and resource files.
 
 To convert an existing platform project:
 
@@ -140,7 +148,16 @@ Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`. The schema is strict: 
       }
     },
     "claude": {},
-    "opencode": {}
+    "opencode": {
+      "mode": "filesystem",
+      "plugin": {
+        "packageName": "@my-org/opencode-agents",
+        "version": "1.0.0",
+        "description": "Reusable OpenCode agents and skills",
+        "license": "MIT",
+        "keywords": ["opencode", "agents"]
+      }
+    }
   },
   "diagnostics": {
     "strict": false,
@@ -156,6 +173,7 @@ Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`. The schema is strict: 
 | `0xcraft init` | Create a starter `.0xcraft/config.json`. |
 | `0xcraft build --target opencode\|claude-code\|codex\|all` | Build platform artifacts from the 0xcraft resource tree. |
 | `0xcraft build --target claude-code --mode claude-plugin\|claude-subagent` | Choose the Claude output mode. |
+| `0xcraft build --target opencode --opencode-mode filesystem\|plugin` | Choose the OpenCode output mode. Default is `filesystem`. |
 | `0xcraft build --validate` | Dry-run without writing artifacts. |
 | `0xcraft build --force` | Overwrite existing generated files. |
 | `0xcraft convert --from <platform> --to <platform>` | Import one platform and emit another through IR. |
@@ -191,6 +209,69 @@ Platform support is intentionally explicit:
 - Codex currently emits runnable command handlers only. `run_exec` is shimmed to a shell command, `timeoutMs` is emitted as Codex `timeout` seconds, and unsupported handlers produce diagnostics.
 - OpenCode runtime plugin hooks are preserved as platform-specific runtime code when they cannot be represented neutrally.
 - Some conversions are lossy. Run `0xcraft doctor` and inspect diagnostics before committing generated artifacts.
+
+## OpenCode plugin mode
+
+OpenCode supports two emit modes. The default `filesystem` mode writes `opencode.json` and `.opencode/*` files directly into the project root. The `plugin` mode emits a self-contained npm package under `.opencode-plugin/`.
+
+Plugin mode layout:
+
+```text
+.opencode-plugin/
+  package.json              # npm manifest for publishing or local metadata
+  index.js                  # OpenCode plugin function entrypoint
+  agents/
+    <id>.md
+    <id>/
+      references/
+  skills/
+    <id>/
+      SKILL.md
+      references/
+  commands/
+    <id>.md
+```
+
+The emitted `index.js` exports an OpenCode plugin function. Its `config` hook adds agents, commands, MCP servers, and the generated `skills/` folder to OpenCode's merged config, so it can be referenced directly from `opencode.json`:
+
+```json
+{
+  "plugin": ["/absolute/path/to/.opencode-plugin/index.js"]
+}
+```
+
+The emitted `package.json` keeps standard ESM package metadata:
+
+```json
+{
+  "name": "@my-org/opencode-agents",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js"
+}
+```
+
+All hooks are consolidated into a single `index.js` with sorted, named inner functions. If no hooks are defined, the entrypoint still emits the config hook so resources remain loadable.
+
+Plugin mode is opt-in via CLI or config:
+
+```bash
+# CLI override
+0xcraft build --target opencode --opencode-mode plugin --force
+
+# Or set in .0xcraft/config.json
+{
+  "platforms": {
+    "opencode": {
+      "mode": "plugin",
+      "plugin": {
+        "packageName": "@my-org/opencode-agents",
+        "version": "1.2.3"
+      }
+    }
+  }
+}
+```
 
 ## Codex details
 

@@ -22,7 +22,7 @@ describe("OpenCode plugin mode integration", () => {
     expect(artifact.files.some((file) => file.path === "opencode.json")).toBe(false);
   });
 
-  test("IT-02 package.json declares ESM entrypoint, schema version, and sorted resource ids", () => {
+  test("IT-02 package.json declares standard ESM entrypoint fields", () => {
     const artifact = emitOpenCode([
       commandFixture({ id: "z-ship" }),
       agentFixture({ id: "z-reviewer" }),
@@ -35,13 +35,10 @@ describe("OpenCode plugin mode integration", () => {
     expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual(expect.objectContaining({
       type: "module",
       main: "index.js",
-      opencode: expect.objectContaining({
-        schemaVersion: "1",
-        agents: ["a-reviewer", "z-reviewer"],
-        skills: ["a-tdd", "z-tdd"],
-        commands: ["a-ship", "z-ship"],
-      }),
+      name: "0xcraft-opencode-plugin",
+      version: "0.0.0",
     }));
+    expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json")).opencode).toBeUndefined();
   });
 
   test("IT-03 rewrites reference tokens to plugin-relative paths", () => {
@@ -87,12 +84,13 @@ describe("OpenCode plugin mode integration", () => {
     expect(index.indexOf("await hook_alpha_hook(input, ctx);")).toBeLessThan(index.indexOf("await hook_zeta_hook(input, ctx);"));
   });
 
-  test("IT-06 emits no-op plugin stub when no hooks exist", () => {
+  test("IT-06 emits plugin function with config hook when no runtime hooks exist", () => {
     const artifact = emitOpenCode([agentFixture({ id: "reviewer" })], { mode: "plugin" });
 
-    expect(fileContent(artifact, ".opencode-plugin/index.js")).toBe(
-      "// 0xcraft-generated OpenCode plugin (plugin mode)\n// No hooks defined.\nexport default async function hook() {\n  return {};\n}\n",
-    );
+    const index = fileContent(artifact, ".opencode-plugin/index.js");
+    expect(index).toContain("export default async function zeroXCraftPlugin(input, options) {");
+    expect(index).toContain("config: async (config) => {");
+    expect(index).toContain("config.agent = { ...(config.agent ?? {}), ...agents };");
   });
 
   test("IT-07 reports duplicate hook ids and omits index.js", () => {
