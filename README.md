@@ -4,9 +4,7 @@
 
 <a href="https://github.com/0xcraft/0xcraft#0xcraft"><img src="./.github/assets/0xcraft-logo.png" alt="0xcraft" width="200" /></a>
 
-[![0xcraft](./.github/assets/hero.jpg)](https://github.com/0xcraft/0xcraft#0xcraft)
-
-[![Preview](./.github/assets/preview.png)](https://github.com/0xcraft/0xcraft#0xcraft)
+[![0xcraft](./.github/assets/hero.png)](https://github.com/0xcraft/0xcraft#0xcraft)
 
 </div>
 
