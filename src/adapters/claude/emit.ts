@@ -4,7 +4,7 @@ import { translateActionForPlatform, translateEventForPlatform } from "../../cor
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
 import type { PlatformArtifact, PlatformArtifactFile } from "../_shared/artifact";
 import { serializeFrontmatter } from "../_shared/frontmatter";
-import { normalizeLf, referencesToArtifactFiles } from "../_shared/references";
+import { normalizeLf, referencesToArtifactFiles, rewriteReferenceTokens } from "../_shared/references";
 
 export type ClaudeEmitMode = "claude-plugin" | "claude-subagent";
 
@@ -66,7 +66,7 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
 
   if (opts.mode === "claude-subagent") {
     for (const agent of sortById(agents)) {
-      files.push(textFile(`.claude/agents/${agent.id}.md`, emitSubagentAgent(agent)));
+      files.push(textFile(`.claude/agents/${agent.id}.md`, emitSubagentAgent(agent, `.claude/agents/${agent.id}/references`)));
       files.push(...referencesToArtifactFiles(agent.references, `.claude/agents/${agent.id}/references`));
     }
 
@@ -81,12 +81,12 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
   files.push(textFile(".claude-plugin/plugin.json", `${stableJson(manifest)}\n`));
 
   for (const agent of sortById(agents)) {
-    files.push(textFile(`agents/${agent.id}.md`, emitPluginAgent(agent, diagnostics)));
+    files.push(textFile(`agents/${agent.id}.md`, emitPluginAgent(agent, diagnostics, `agents/${agent.id}/references`)));
     files.push(...referencesToArtifactFiles(agent.references, `agents/${agent.id}/references`));
   }
 
   for (const skill of sortById(skills)) {
-    files.push(textFile(`skills/${skill.id}/SKILL.md`, emitPluginSkill(skill)));
+    files.push(textFile(`skills/${skill.id}/SKILL.md`, emitPluginSkill(skill, `skills/${skill.id}/references`)));
     files.push(...referencesToArtifactFiles(skill.references, `skills/${skill.id}/references`));
   }
 
@@ -166,7 +166,7 @@ function emitPluginManifest(
   }) as ClaudePluginManifest;
 }
 
-function emitPluginAgent(agent: AgentIR, diagnostics: Diagnostic[]): string {
+function emitPluginAgent(agent: AgentIR, diagnostics: Diagnostic[], referencesDir: string): string {
   const claude = agent.platform.claude ?? {};
   const meta: Record<string, unknown> = omitUndefined({
     name: claude.name ?? agent.common.name,
@@ -187,10 +187,10 @@ function emitPluginAgent(agent: AgentIR, diagnostics: Diagnostic[]): string {
     if (value !== undefined) diagnostics.push(strippedAgentFieldDiagnostic(agent.id, field));
   }
 
-  return withFrontmatter(meta, agent.common.prompt);
+  return withFrontmatter(meta, rewriteReferenceTokens(agent.common.prompt, referencesDir));
 }
 
-function emitSubagentAgent(agent: AgentIR): string {
+function emitSubagentAgent(agent: AgentIR, referencesDir: string): string {
   const claude = agent.platform.claude ?? {};
   const meta: Record<string, unknown> = omitUndefined({
     name: claude.name ?? agent.common.name,
@@ -211,10 +211,10 @@ function emitSubagentAgent(agent: AgentIR): string {
     initialPrompt: claude.initialPrompt,
   });
 
-  return withFrontmatter(meta, agent.common.prompt);
+  return withFrontmatter(meta, rewriteReferenceTokens(agent.common.prompt, referencesDir));
 }
 
-function emitPluginSkill(skill: SkillIR): string {
+function emitPluginSkill(skill: SkillIR, referencesDir: string): string {
   const claude = skill.platform.claude ?? {};
   const meta: Record<string, unknown> = omitUndefined({
     name: claude.name ?? skill.common.name,
@@ -235,7 +235,7 @@ function emitPluginSkill(skill: SkillIR): string {
     shell: claude.shell,
   });
 
-  return withFrontmatter(meta, skill.common.body);
+  return withFrontmatter(meta, rewriteReferenceTokens(skill.common.body, referencesDir));
 }
 
 function emitMcpJson(mcps: McpServerIR[]): { mcpServers: Record<string, Record<string, unknown>> } {

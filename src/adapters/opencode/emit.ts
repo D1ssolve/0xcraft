@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import type { PlatformArtifact, PlatformArtifactFile } from "../_shared/artifact";
 import { serializeFrontmatter } from "../_shared/frontmatter";
-import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles } from "../_shared/references";
+import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles, rewriteReferenceTokens } from "../_shared/references";
 import { matrixDiagnosticFor } from "../../core/capability-matrix/diagnostics";
 import type { CapabilityFeature } from "../../core/capability-matrix/matrix-types";
 import type { Diagnostic } from "../../core/diagnostics";
@@ -108,10 +108,12 @@ function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArti
     experimental: agent.platform.opencode?.experimental,
   }));
 
+  const body = rewriteReferenceTokens(agent.common.prompt, `.opencode/agents/${agent.id}/references`);
+
   return [
     {
       path: `.opencode/agents/${agent.id}.md`,
-      content: frontmatterWithBody(meta, agent.common.prompt),
+      content: frontmatterWithBody(meta, body),
       mode: 0o644,
     },
     ...referencesToArtifactFiles(agent.references, `.opencode/agents/${agent.id}/references`),
@@ -137,10 +139,12 @@ function emitSkillFiles(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArti
     metadata: opencodeMeta.metadata,
   }));
 
+  const body = rewriteReferenceTokens(skill.common.body, `.opencode/skills/${skill.id}/references`);
+
   return [
     {
       path: `.opencode/skills/${skill.id}/SKILL.md`,
-      content: frontmatterWithBody(meta, skill.common.body),
+      content: frontmatterWithBody(meta, body),
       mode: 0o644,
     },
     ...referencesToArtifactFiles(skill.references, `.opencode/skills/${skill.id}/references`),

@@ -45,6 +45,37 @@ export function loadReferencesFromDir(dir: string): {
   return { files, sourceFiles };
 }
 
+/**
+ * Replace reference path tokens in body text with platform-specific paths.
+ *
+ * Replaces:
+ *   {{references_dir}}/filename → <referencesDir>/filename
+ *   ~/.config/opencode/agents/<any-id>/references/filename → <referencesDir>/filename
+ *   ~/.config/opencode/skills/<any-id>/references/filename → <referencesDir>/filename
+ */
+export function rewriteReferenceTokens(
+  body: string,
+  referencesDir: string,
+): string {
+  if (!body) return body;
+
+  let result = body;
+
+  result = result.replace(/\{\{references_dir\}\}/g, referencesDir);
+
+  result = result.replace(
+    /~\/\.config\/opencode\/agents\/[a-z0-9][a-z0-9_-]*\/references/g,
+    referencesDir,
+  );
+
+  result = result.replace(
+    /~\/\.config\/opencode\/skills\/[a-z0-9][a-z0-9_-]*\/references/g,
+    referencesDir,
+  );
+
+  return result;
+}
+
 export function referencesToArtifactFiles(
   references: Record<string, string> | undefined,
   basePath: string,

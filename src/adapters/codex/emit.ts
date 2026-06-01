@@ -8,7 +8,7 @@ import {
 } from "../../core/hook-runtime/translator";
 import { serializeToml } from "../../core/loader/toml-parser";
 import type { PlatformArtifact } from "../_shared/artifact";
-import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles } from "../_shared/references";
+import { ensureTrailingLf, normalizeLf, referencesToArtifactFiles, rewriteReferenceTokens } from "../_shared/references";
 
 export interface CodexPackageMetadata {
   name?: string;
@@ -142,10 +142,11 @@ export function emitCodexHooks(hooks: HookIR[]): CodexHookEmitResult {
 function emitAgentToml(agent: AgentIR, diagnostics: Diagnostic[], opts: CodexEmitOptions): string {
   const codex = agent.platform.codex;
   const approvalPolicy = (codex?.approval_policy ?? agent.common.permissions?.platform.codex?.approval_policy) as unknown;
+  const developerInstructions = codex?.developer_instructions ?? agent.common.prompt;
   const data: Record<string, unknown> = {
     name: codex?.name ?? agent.common.name,
     description: codex?.description ?? agent.common.description,
-    developer_instructions: codex?.developer_instructions ?? agent.common.prompt,
+    developer_instructions: rewriteReferenceTokens(developerInstructions, `.codex/agents/${agent.id}/references`),
     model: codex?.model ?? agent.common.model,
     model_reasoning_effort: codex?.model_reasoning_effort,
     sandbox_mode: codex?.sandbox_mode ?? agent.common.permissions?.sandbox,
