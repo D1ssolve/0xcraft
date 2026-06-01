@@ -8,8 +8,6 @@
 
 </div>
 
-> 0xcraft running Team Mode. One config. Three harnesses. Zero lock-in.
-
 <div align="center">
 
 [![GitHub Release](https://img.shields.io/github/v/release/0xcraft/0xcraft?color=369eff&labelColor=black&logo=github&style=flat-square)](https://github.com/0xcraft/0xcraft/releases)
@@ -40,8 +38,6 @@ npm install -g 0xcraft
 bun install 0xcraft
 ```
 
-See the [Installation Guide](docs/guide/installation.md) for details.
-
 ## Highlights
 
 |     | Feature                           | What it does                                                                                                |
@@ -64,10 +60,6 @@ src/cli/           ← Commander.js: init, build, convert, import, doctor, pack
 ```
 
 **Core principle:** Don't over-abstract. Core defines data; adapters map to platform idioms.
-
----
-
-> **New to 0xcraft?** Read the [Overview](docs/guide/overview.md) to understand what you have, or check the [Converter Guide](docs/guide/converter.md) for how the IR pipeline works.
 
 ## CLI Commands
 
@@ -126,8 +118,6 @@ Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`:
   "gitWorktreeBootstrapEnabled": true,
 }
 ```
-
-See [Configuration Documentation](docs/reference/configuration.md) for the full schema.
 
 ## Author's Note
 
