@@ -150,6 +150,7 @@ function opencodeStatus(feature: CapabilityFeature): MatrixEntry {
     case "mcp.http":
     case "mcp.sse":
     case "mcp.stdio":
+    case "opencode.emit.plugin":
     case "permissions.bashGlob":
     case "permissions.perTool":
     case "skills.autoLoad":
@@ -167,6 +168,9 @@ function opencodeStatus(feature: CapabilityFeature): MatrixEntry {
 }
 
 function claudeStatus(feature: CapabilityFeature): MatrixEntry {
+  if (feature === "opencode.emit.plugin") {
+    return cell("drop-warn", "OpenCode plugin emit is OpenCode-only.");
+  }
   if (feature.startsWith("agent.frontmatter.")) {
     const pluginStatus = CLAUDE_PLUGIN_FORBIDDEN_FRONTMATTER.has(feature) ? "drop-warn" : "full";
     return claudeCell(pluginStatus, "full", "Claude plugin mode strips full-subagent-only fields.");

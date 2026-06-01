@@ -2,25 +2,9 @@
 
 <div align="center">
 
-<a href="https://github.com/0xcraft/0xcraft#0xcraft"><img src="./.github/assets/0xcraft-logo.png" alt="0xcraft" width="200" /></a>
-
 [![0xcraft](./.github/assets/hero.png)](https://github.com/0xcraft/0xcraft#0xcraft)
 
 </div>
-
-<div align="center">
-
-[![GitHub Release](https://img.shields.io/github/v/release/0xcraft/0xcraft?color=369eff&labelColor=black&logo=github&style=flat-square)](https://github.com/0xcraft/0xcraft/releases)
-[![npm downloads](https://img.shields.io/npm/dm/0xcraft?style=flat-square)](https://www.npmjs.com/package/0xcraft)
-[![GitHub Contributors](https://img.shields.io/github/contributors/0xcraft/0xcraft?color=c4f042&labelColor=black&style=flat-square)](https://github.com/0xcraft/0xcraft/graphs/contributors)
-[![GitHub Forks](https://img.shields.io/github/forks/0xcraft/0xcraft?color=8ae8ff&labelColor=black&style=flat-square)](https://github.com/0xcraft/0xcraft/network/members)
-[![GitHub Stars](https://img.shields.io/github/stars/0xcraft/0xcraft?color=ffcb47&labelColor=black&style=flat-square)](https://github.com/0xcraft/0xcraft/stargazers)
-[![GitHub Issues](https://img.shields.io/github/issues/0xcraft/0xcraft?color=ff80eb&labelColor=black&style=flat-square)](https://github.com/0xcraft/0xcraft/issues)
-[![License](https://img.shields.io/badge/license-MIT-white?labelColor=black&style=flat-square)](https://github.com/0xcraft/0xcraft/blob/main/LICENSE)
-
-</div>
-
-<!-- </CENTERED SECTION FOR GITHUB DISPLAY> -->
 
 # 0xcraft
 

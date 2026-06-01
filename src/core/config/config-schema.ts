@@ -20,7 +20,8 @@ const DEFAULT_CODEX_PLATFORM = {
   hooksEmitMode: "hooks.json" as const,
   mcpEnvelope: "wrapped" as const,
 };
-const DEFAULT_PLATFORMS = { codex: DEFAULT_CODEX_PLATFORM, claude: {}, opencode: {} };
+const DEFAULT_OPENCODE_PLATFORM = { mode: "filesystem" as const };
+const DEFAULT_PLATFORMS = { codex: DEFAULT_CODEX_PLATFORM, claude: {}, opencode: DEFAULT_OPENCODE_PLATFORM };
 
 const stringArraySchema = z.array(z.string());
 
@@ -114,11 +115,30 @@ const codexPlatformSchema = z
     }
   });
 
+const opencodePlatformSchema = z
+  .object({
+    mode: z.enum(["filesystem", "plugin"]).default("filesystem"),
+    plugin: z
+      .object({
+        packageName: z.string().optional(),
+        version: z.string().optional(),
+        description: z.string().optional(),
+        license: z.string().optional(),
+        author: z.string().optional(),
+        homepage: z.string().optional(),
+        repository: z.string().optional(),
+        keywords: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 const platformsSchema = z
   .object({
     codex: codexPlatformSchema.default(DEFAULT_CODEX_PLATFORM),
     claude: z.object({}).strict().default({}),
-    opencode: z.object({}).strict().default({}),
+    opencode: opencodePlatformSchema.default({ mode: "filesystem" }),
   })
   .strict();
 

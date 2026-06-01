@@ -124,6 +124,7 @@ export const CapabilityFeature = {
   McpSse: "mcp.sse",
   McpStdio: "mcp.stdio",
   McpServers: "mcpServers",
+  OpencodeEmitPlugin: "opencode.emit.plugin",
   PackageMetadata: "packageMetadata",
   Permissions: "permissions",
   PermissionsBashGlob: "permissions.bashGlob",

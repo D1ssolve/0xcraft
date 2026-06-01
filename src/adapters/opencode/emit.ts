@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -10,10 +11,27 @@ import type { Diagnostic } from "../../core/diagnostics";
 import type { AgentIR, CommandIR, HookIR, IRResource, McpServerIR, SkillIR } from "../../core/ir";
 import { translateActionForPlatform } from "../../core/hook-runtime/translator";
 import type { HookActionIR } from "../../core/hook-runtime/primitives";
+import { createPathResolver } from "./path-resolver";
+import type { OpenCodeEmitMode, OpenCodePathResolver } from "./path-resolver";
+
+export type { OpenCodeEmitMode } from "./path-resolver";
+
+export interface OpenCodePluginMetadata {
+  readonly packageName?: string;
+  readonly version?: string;
+  readonly description?: string;
+  readonly license?: string;
+  readonly author?: string;
+  readonly homepage?: string;
+  readonly repository?: string;
+  readonly keywords?: readonly string[];
+}
 
 export interface EmitOptions {
   /** Reserved for future CLI build context; no timestamp or environment data is read. */
   readonly strict?: boolean;
+  readonly mode?: OpenCodeEmitMode;
+  readonly plugin?: OpenCodePluginMetadata;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -30,22 +48,24 @@ export interface OpenCodeHookEmitResult {
   diagnostics: Diagnostic[];
 }
 
-export function emitOpenCode(ir: IRResource[], _opts: EmitOptions = {}): PlatformArtifact {
+export function emitOpenCode(ir: IRResource[], opts: EmitOptions = {}): PlatformArtifact {
   const diagnostics: Diagnostic[] = [];
   const files: PlatformArtifactFile[] = [];
   const config: OpenCodeConfig = {};
   const hooks: HookIR[] = [];
+  const resolver = createPathResolver(opts.mode ?? "filesystem");
+  const isPlugin = resolver.mode === "plugin";
 
   for (const resource of [...ir].sort(compareResource)) {
     switch (resource.kind) {
       case "agent":
-        files.push(...emitAgentFiles(resource, diagnostics));
+        files.push(...emitAgentFiles(resource, diagnostics, resolver));
         break;
       case "skill":
-        files.push(...emitSkillFiles(resource, diagnostics));
+        files.push(...emitSkillFiles(resource, diagnostics, resolver));
         break;
       case "command":
-        files.push(emitCommandFile(resource));
+        files.push(emitCommandFile(resource, resolver));
         break;
       case "mcp":
         addMcpConfig(config, resource, diagnostics);
@@ -57,20 +77,28 @@ export function emitOpenCode(ir: IRResource[], _opts: EmitOptions = {}): Platfor
     }
   }
 
-  const hookResult = emitOpenCodeHooks(hooks);
+  const hookResult = isPlugin
+    ? emitPluginModeHooks(hooks)
+    : emitOpenCodeHooks(hooks, resolver);
   diagnostics.push(...hookResult.diagnostics);
   for (const [path, content] of Object.entries(hookResult.artifacts)) {
-    files.push({ path, content: ensureTrailingLf(normalizeLf(content)), mode: 0o644 });
+    files.push({ path: isPlugin ? `.opencode-plugin/${path}` : path, content, mode: 0o644 });
   }
 
-  const pluginPaths = Object.keys(hookResult.artifacts)
-    .sort((left, right) => left.localeCompare(right))
-    .map((path) => `./${path}`);
-  if (pluginPaths.length > 0) {
-    config.plugin = pluginPaths;
-  }
+  if (isPlugin) {
+    if (!hookResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+      files.push(emitPluginPackageJson(ir, opts.plugin, diagnostics, config));
+    }
+  } else {
+    const pluginPaths = Object.keys(hookResult.artifacts)
+      .sort((left, right) => left.localeCompare(right))
+      .map((path) => `./${path}`);
+    if (pluginPaths.length > 0) {
+      config.plugin = pluginPaths;
+    }
 
-  files.push({ path: "opencode.json", content: `${stableStringify(config)}\n`, mode: 0o644 });
+    files.push({ path: resolver.configFile(), content: `${stableStringify(config)}\n`, mode: 0o644 });
+  }
 
   const sortedFiles = files
     .map((file) => ({ ...file, content: ensureTrailingLf(normalizeLf(file.content)) }))
@@ -88,7 +116,7 @@ export function emitOpenCode(ir: IRResource[], _opts: EmitOptions = {}): Platfor
   };
 }
 
-function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArtifactFile[] {
+function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[], resolver: OpenCodePathResolver): PlatformArtifactFile[] {
   diagnosePlatformOnlyFields(agent.platform.claude, "claude", diagnostics);
   diagnosePlatformOnlyFields(agent.platform.codex, "codex", diagnostics);
 
@@ -108,19 +136,20 @@ function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[]): PlatformArti
     experimental: agent.platform.opencode?.experimental,
   }));
 
-  const body = rewriteReferenceTokens(agent.common.prompt, `.opencode/agents/${agent.id}/references`);
+  const referencesDir = resolver.agentReferencesDir(agent.id);
+  const body = rewriteReferenceTokens(agent.common.prompt, referencesDir);
 
   return [
     {
-      path: `.opencode/agents/${agent.id}.md`,
+      path: resolver.agentFile(agent.id),
       content: frontmatterWithBody(meta, body),
       mode: 0o644,
     },
-    ...referencesToArtifactFiles(agent.references, `.opencode/agents/${agent.id}/references`),
+    ...referencesToArtifactFiles(agent.references, referencesDir),
   ];
 }
 
-function emitSkillFiles(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArtifactFile[] {
+function emitSkillFiles(skill: SkillIR, diagnostics: Diagnostic[], resolver: OpenCodePathResolver): PlatformArtifactFile[] {
   if (skill.common["allowed-tools"] !== undefined || skill.common["disallowed-tools"] !== undefined) {
     diagnostics.push(createSkillToolListDiagnostic(skill.id, "common"));
   }
@@ -139,19 +168,20 @@ function emitSkillFiles(skill: SkillIR, diagnostics: Diagnostic[]): PlatformArti
     metadata: opencodeMeta.metadata,
   }));
 
-  const body = rewriteReferenceTokens(skill.common.body, `.opencode/skills/${skill.id}/references`);
+  const referencesDir = resolver.skillReferencesDir(skill.id);
+  const body = rewriteReferenceTokens(skill.common.body, referencesDir);
 
   return [
     {
-      path: `.opencode/skills/${skill.id}/SKILL.md`,
+      path: resolver.skillFile(skill.id),
       content: frontmatterWithBody(meta, body),
       mode: 0o644,
     },
-    ...referencesToArtifactFiles(skill.references, `.opencode/skills/${skill.id}/references`),
+    ...referencesToArtifactFiles(skill.references, referencesDir),
   ];
 }
 
-function emitCommandFile(command: CommandIR): PlatformArtifactFile {
+function emitCommandFile(command: CommandIR, resolver: OpenCodePathResolver): PlatformArtifactFile {
   const meta = sortedObject(removeUndefined({
     name: command.common.name,
     description: command.common.description,
@@ -161,10 +191,64 @@ function emitCommandFile(command: CommandIR): PlatformArtifactFile {
   }));
 
   return {
-    path: `.opencode/commands/${command.id}.md`,
+    path: resolver.commandFile(command.id),
     content: frontmatterWithBody(meta, command.common.template),
     mode: 0o644,
   };
+}
+
+function emitPluginPackageJson(
+  ir: IRResource[],
+  opts: OpenCodePluginMetadata | undefined,
+  diagnostics: Diagnostic[],
+  config: OpenCodeConfig,
+): PlatformArtifactFile {
+  const packageName = opts?.packageName ?? "0xcraft-opencode-plugin";
+  if (!isValidNpmPackageName(packageName)) {
+    diagnostics.push({
+      severity: "error",
+      code: "ERR_PLUGIN_INVALID_PACKAGE_NAME",
+      message: "OpenCode plugin package name must be a valid npm package name.",
+      details: { packageName, platform: "opencode" },
+    });
+  }
+
+  const manifest = sortedObject(removeUndefined({
+    name: packageName,
+    version: opts?.version ?? "0.0.0",
+    type: "module",
+    main: "index.js",
+    description: opts?.description,
+    license: opts?.license,
+    author: opts?.author,
+    homepage: opts?.homepage,
+    repository: opts?.repository,
+    keywords: opts?.keywords === undefined ? undefined : [...opts.keywords],
+    opencode: {
+      schemaVersion: "1",
+      agents: sortedIds(ir, "agent"),
+      skills: sortedIds(ir, "skill"),
+      commands: sortedIds(ir, "command"),
+      mcp: config.mcp ?? {},
+    },
+  }));
+
+  return { path: ".opencode-plugin/package.json", content: `${stableStringify(manifest)}\n`, mode: 0o644 };
+}
+
+function sortedIds(ir: IRResource[], kind: IRResource["kind"]): string[] {
+  return ir
+    .filter((resource) => resource.kind === kind)
+    .map((resource) => resource.id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function isValidNpmPackageName(packageName: string): boolean {
+  return /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/.test(packageName)
+    && packageName.length <= 214
+    && !packageName.startsWith(".")
+    && !packageName.startsWith("_")
+    && !packageName.includes(" ");
 }
 
 function addMcpConfig(config: OpenCodeConfig, mcp: McpServerIR, diagnostics: Diagnostic[]): void {
@@ -282,7 +366,10 @@ const OPENCODE_PLUGIN_HOOK_KEYS = new Set([
   "tool.definition",
 ]);
 
-export function emitOpenCodeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
+export function emitOpenCodeHooks(
+  hooks: HookIR[],
+  resolver: OpenCodePathResolver = createPathResolver("filesystem"),
+): OpenCodeHookEmitResult {
   const artifacts: Record<string, string> = {};
   const diagnostics: Diagnostic[] = [];
 
@@ -303,10 +390,136 @@ export function emitOpenCodeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
       continue;
     }
 
-    artifacts[`.opencode/plugins/${hook.id}.js`] = emitHookPlugin(hook, translatedActions, diagnostics);
+    artifacts[resolver.hookFile(hook.id)] = emitHookPlugin(hook, translatedActions, diagnostics);
   }
 
   return { artifacts, diagnostics };
+}
+
+export function emitPluginModeHooks(hooks: HookIR[]): OpenCodeHookEmitResult {
+  const diagnostics: Diagnostic[] = [];
+  const sortedHooks = [...hooks].sort((left, right) => left.id.localeCompare(right.id));
+  const seen = new Set<string>();
+
+  for (const hook of sortedHooks) {
+    if (seen.has(hook.id)) {
+      diagnostics.push({
+        severity: "error",
+        code: "ERR_PLUGIN_DUPLICATE_HOOK_ID",
+        message: "OpenCode plugin mode requires unique hook ids because hooks are consolidated into index.js.",
+        details: { hookId: hook.id, platform: "opencode" },
+      });
+      return { artifacts: {}, diagnostics };
+    }
+    seen.add(hook.id);
+  }
+
+  if (sortedHooks.length === 0) {
+    return {
+      artifacts: { "index.js": emitNoopPluginModeStub() },
+      diagnostics,
+    };
+  }
+
+  const functions: string[] = [];
+  const dispatcherCalls: string[] = [];
+
+  for (const hook of sortedHooks) {
+    const translatedActions: HookActionIR[] = [];
+
+    for (const action of hook.common.actions) {
+      const translation = translateActionForPlatform(action, "opencode");
+      if (translation.diagnostic !== undefined) {
+        diagnostics.push(translation.diagnostic);
+      }
+      if (translation.output !== undefined) {
+        translatedActions.push(translation.output as HookActionIR);
+      }
+    }
+
+    if (translatedActions.length === 0) {
+      continue;
+    }
+
+    const functionName = pluginHookFunctionName(hook.id);
+    functions.push(emitPluginModeHookFunction(functionName, hook, translatedActions, diagnostics));
+    dispatcherCalls.push(`        await ${functionName}(input, ctx);`);
+  }
+
+  if (functions.length === 0) {
+    return {
+      artifacts: { "index.js": emitNoopPluginModeStub() },
+      diagnostics,
+    };
+  }
+
+  return {
+    artifacts: { "index.js": emitPluginModeIndex(functions, dispatcherCalls) },
+    diagnostics,
+  };
+}
+
+function emitNoopPluginModeStub(): string {
+  return normalizeLf(`// 0xcraft-generated OpenCode plugin (plugin mode)
+// No hooks defined.
+export default async function hook() {
+  return {};
+}
+`);
+}
+
+function pluginHookFunctionName(id: string): string {
+  return `hook_${id.replaceAll(/[^A-Za-z0-9_$]/g, "_")}`;
+}
+
+function emitPluginModeHookFunction(
+  functionName: string,
+  hook: HookIR,
+  actions: HookActionIR[],
+  diagnostics: Diagnostic[],
+): string {
+  const runtimeCodeActions = actions.filter(isOpenCodeRuntimeCodeAction);
+  if (runtimeCodeActions.length > 0) {
+    const runtimeCode = runtimeCodeActions
+      .map((action) => readRuntimeCodeAction(hook, action, diagnostics))
+      .join("\n")
+      .replaceAll("\r\n", "\n");
+    return normalizeLf(`async function ${functionName}(input, ctx) {
+  const module = await import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}");
+  const plugin = await module.default(input);
+  if (typeof plugin?.event === "function") await plugin.event(ctx);
+}`);
+  }
+
+  for (const action of actions) {
+    if (requiresOpenCodeOnlyInfo(action)) {
+      diagnostics.push(createOpenCodeOnlyDiagnostic(hook.id, action.type));
+    }
+  }
+
+  return normalizeLf(`async function ${functionName}(input, ctx) {
+  const actions = ${stableStringify(actions)};
+  for (const action of actions) {
+    await runAction(action, input, ctx);
+  }
+}`);
+}
+
+function emitPluginModeIndex(functions: string[], dispatcherCalls: string[]): string {
+  return normalizeLf(`// 0xcraft-generated OpenCode plugin (plugin mode)
+import { spawn } from "node:child_process";
+
+${functions.join("\n\n")}
+
+export default async function hook(input) {
+  return {
+    event: async (ctx) => {
+${dispatcherCalls.join("\n")}
+    },
+  };
+}
+
+${emitRuntimeHelpers()}`);
 }
 
 function emitHookPlugin(hook: HookIR, actions: HookActionIR[], diagnostics: Diagnostic[]): string {
@@ -384,7 +597,11 @@ export default async function hook(input) {
   };
 }
 
-async function runAction(action, input, ctx) {
+${emitRuntimeHelpers()}`);
+}
+
+function emitRuntimeHelpers(): string {
+  return normalizeLf(`async function runAction(action, input, ctx) {
   switch (action.type) {
     case "run_command":
       await runCommand(action.command, { shell: action.shell, timeoutMs: action.timeoutMs });

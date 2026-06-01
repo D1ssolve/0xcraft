@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { emitClaude, type ClaudeEmitMode } from "../adapters/claude/emit";
 import { emitCodex } from "../adapters/codex/emit";
-import { emitOpenCode } from "../adapters/opencode/emit";
+import { emitOpenCode, type OpenCodeEmitMode } from "../adapters/opencode/emit";
 import type { PlatformArtifact } from "../adapters/_shared/artifact";
 import { resolveInsideRoot, writeArtifact } from "../adapters/_shared/filesystem";
 import { resolvePackResources } from "../adapters/_shared/pack-resolver/resolver";
@@ -20,6 +20,7 @@ export type BuildTarget = "opencode" | "claude-code" | "codex" | "all";
 export interface BuildCommandOptions {
   target?: string;
   mode?: string;
+  opencodeMode?: string;
   out?: string;
   validate?: boolean;
   strict?: boolean;
@@ -63,6 +64,7 @@ export function createBuildCommand(): Command {
     .description("Build per-target artifacts from .0xcraft/ source")
     .option("--target <id>", "Target: opencode | claude-code | codex | all", "all")
     .option("--mode <mode>", "Claude mode: claude-plugin | claude-subagent", "claude-plugin")
+    .option("--opencode-mode <mode>", "OpenCode emit mode: filesystem | plugin")
     .option("--out <dir>", "Output root override")
     .option("--validate", "Dry-run, do not write")
     .option("--strict", "Upgrade warn to error")
@@ -124,8 +126,24 @@ export async function runBuildCommand(
   }
 
   if (config !== undefined) {
-    for (const currentTarget of targetsFor(target)) {
-      const artifact = emitForTarget(currentTarget, ir, config, mode);
+    const buildTargets = targetsFor(target);
+    let opencodeMode: OpenCodeEmitMode = "filesystem";
+
+    if (buildTargets.includes("opencode")) {
+      const rawOpenCodeMode = options.opencodeMode ?? config.platforms.opencode.mode ?? "filesystem";
+      const parsedOpenCodeMode = parseOpenCodeMode(rawOpenCodeMode);
+      if (parsedOpenCodeMode === undefined) {
+        const finalDiagnostics = finalizeDiagnostics([
+          diagnostic("error", "ERR_UNSUPPORTED_MODE", `Unsupported OpenCode mode: ${rawOpenCodeMode}`, { mode: rawOpenCodeMode }),
+        ], options.strict === true);
+        report(finalDiagnostics, options.json === true, stdout, stderr);
+        return { diagnostics: finalDiagnostics, exitCode: 1, artifacts };
+      }
+      opencodeMode = parsedOpenCodeMode;
+    }
+
+    for (const currentTarget of buildTargets) {
+      const artifact = emitForTarget(currentTarget, ir, config, mode, opencodeMode);
       artifacts.push(artifact);
       diagnostics.push(...artifact.diagnostics);
       artifactPlans.push({
@@ -164,6 +182,10 @@ function parseClaudeMode(value: string): ClaudeEmitMode | undefined {
   return value === "claude-plugin" || value === "claude-subagent" ? value : undefined;
 }
 
+function parseOpenCodeMode(value: string | undefined): OpenCodeEmitMode | undefined {
+  return value === "filesystem" || value === "plugin" ? value : undefined;
+}
+
 function targetsFor(target: BuildTarget): Array<Exclude<BuildTarget, "all">> {
   return target === "all" ? [...ALL_TARGETS] : [target];
 }
@@ -173,9 +195,13 @@ function emitForTarget(
   ir: IRResource[],
   config: ZeroxCraftConfig,
   mode: ClaudeEmitMode,
+  opencodeMode: OpenCodeEmitMode,
 ): PlatformArtifact {
   if (target === "opencode") {
-    return emitOpenCode(ir);
+    return emitOpenCode(ir, {
+      mode: opencodeMode,
+      plugin: config.platforms.opencode.plugin ?? undefined,
+    });
   }
   if (target === "claude-code") {
     return emitClaude(ir, { mode });

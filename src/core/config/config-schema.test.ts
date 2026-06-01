@@ -25,7 +25,7 @@ describe("ConfigSchema", () => {
         mcpEnvelope: "wrapped",
       },
       claude: {},
-      opencode: {},
+      opencode: { mode: "filesystem" },
     });
   });
 
@@ -90,6 +90,7 @@ describe("ConfigSchema", () => {
     expect(parsed.out.codex).toBe("dist/codex");
     expect(parsed.packs).toEqual([{ name: "@0xcraft/agents-pack", version: "1.0.0" }]);
     expect(parsed.platforms.codex.emitMarketplace).toBe(true);
+    expect(parsed.platforms.opencode.mode).toBe("filesystem");
     expect(parsed.platforms.codex.agents.explorer?.model).toBe("opus");
     expect(parsed.platforms.codex.hooksEmitMode).toBe("config-inline");
     expect(parsed.platforms.codex.mcpEnvelope).toBe("direct");
@@ -100,6 +101,63 @@ describe("ConfigSchema", () => {
     expect(() =>
       ConfigSchema.parse({ platforms: { codex: { emitMarketplace: true, emitPlugin: false } } }),
     ).toThrow(/ERR_MARKETPLACE_REQUIRES_PLUGIN/);
+  });
+
+  test("defaults opencode mode to filesystem", () => {
+    const parsed = ConfigSchema.parse({});
+
+    expect(parsed.platforms.opencode).toEqual({ mode: "filesystem" });
+  });
+
+  test("parses valid opencode plugin metadata", () => {
+    const parsed = ConfigSchema.parse({
+      platforms: {
+        opencode: {
+          mode: "plugin",
+          plugin: {
+            packageName: "@0xcraft/opencode-pack",
+            version: "1.2.3",
+            description: "OpenCode plugin metadata",
+            license: "MIT",
+            author: "0xcraft",
+            homepage: "https://example.com",
+            repository: "https://github.com/example/repo",
+            keywords: ["opencode", "agents"],
+          },
+        },
+      },
+    });
+
+    expect(parsed.platforms.opencode).toEqual({
+      mode: "plugin",
+      plugin: {
+        packageName: "@0xcraft/opencode-pack",
+        version: "1.2.3",
+        description: "OpenCode plugin metadata",
+        license: "MIT",
+        author: "0xcraft",
+        homepage: "https://example.com",
+        repository: "https://github.com/example/repo",
+        keywords: ["opencode", "agents"],
+      },
+    });
+  });
+
+  test("rejects unknown opencode platform and plugin metadata keys", () => {
+    expect(() => ConfigSchema.parse({ platforms: { opencode: { output: "dist" } } })).toThrow();
+    expect(() =>
+      ConfigSchema.parse({ platforms: { opencode: { plugin: { private: true } } } }),
+    ).toThrow();
+  });
+
+  test("rejects invalid opencode mode enum", () => {
+    expect(() => ConfigSchema.parse({ platforms: { opencode: { mode: "subagent" } } })).toThrow();
+  });
+
+  test("parses existing empty opencode configs with defaults", () => {
+    const parsed = ConfigSchema.parse({ platforms: { opencode: {} } });
+
+    expect(parsed.platforms.opencode).toEqual({ mode: "filesystem" });
   });
 
   test("rejects flat aliases and unknown top-level keys", () => {

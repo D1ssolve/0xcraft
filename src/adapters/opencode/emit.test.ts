@@ -133,6 +133,21 @@ describe("emitOpenCodeHooks", () => {
 });
 
 describe("emitOpenCode", () => {
+  test("explicit filesystem mode matches default output byte-for-byte", () => {
+    const ir: IRResource[] = [
+      agentFixture({
+        id: "reviewer",
+        references: { "guide.md": "Use {{references_dir}}/guide.md" },
+      }),
+      skillFixture({ id: "tdd", references: { "examples.md": "Example" } }),
+      commandFixture({ id: "ship" }),
+      mcpFixture({ id: "local-fs", transport: "stdio" }),
+      hookFixture({ id: "audit-tools", actions: [{ type: "run_command", command: "printf ok" }] }),
+    ];
+
+    expect(JSON.stringify(emitOpenCode(ir, { mode: "filesystem" }))).toBe(JSON.stringify(emitOpenCode(ir)));
+  });
+
   test("emits agents as OpenCode markdown files", () => {
     const artifact = emitOpenCode([
       agentFixture({
@@ -270,6 +285,146 @@ describe("emitOpenCode", () => {
 
     expect(JSON.stringify(emitOpenCode(ir))).toBe(JSON.stringify(emitOpenCode(ir)));
   });
+
+  test("emits plugin mode package, index, and resource files without opencode.json", () => {
+    const artifact = emitOpenCode([
+      agentFixture({
+        id: "reviewer",
+        references: { "guide.md": "Agent reference" },
+        prompt: "Read {{references_dir}}/guide.md.",
+      }),
+      skillFixture({
+        id: "tdd",
+        common: { body: "Use {{references_dir}}/examples.md." },
+        references: { "examples.md": "Skill reference" },
+      }),
+      commandFixture({ id: "ship" }),
+      mcpFixture({ id: "local-fs", transport: "stdio" }),
+    ], {
+      mode: "plugin",
+      plugin: {
+        packageName: "@acme/opencode-plugin",
+        version: "1.2.3",
+        description: "Acme OpenCode plugin",
+        license: "MIT",
+        author: "Acme",
+        homepage: "https://example.test",
+        repository: "https://github.com/acme/plugin",
+        keywords: ["opencode", "0xcraft"],
+      },
+    });
+
+    expect(artifact.ok).toBe(true);
+    expect(artifact.metadata.deterministic).toBe(true);
+    expect(artifact.files.map((file) => file.path)).toEqual([
+      ".opencode-plugin/agents/reviewer.md",
+      ".opencode-plugin/agents/reviewer/references/guide.md",
+      ".opencode-plugin/commands/ship.md",
+      ".opencode-plugin/index.js",
+      ".opencode-plugin/package.json",
+      ".opencode-plugin/skills/tdd/references/examples.md",
+      ".opencode-plugin/skills/tdd/SKILL.md",
+    ]);
+    expect(artifact.files.some((file) => file.path === "opencode.json")).toBe(false);
+    expect(fileContent(artifact, ".opencode-plugin/agents/reviewer.md")).toContain("Read .opencode-plugin/agents/reviewer/references/guide.md.");
+    expect(fileContent(artifact, ".opencode-plugin/skills/tdd/SKILL.md")).toContain("Use .opencode-plugin/skills/tdd/references/examples.md.");
+    expect(fileContent(artifact, ".opencode-plugin/index.js")).toBe(
+      "// 0xcraft-generated OpenCode plugin (plugin mode)\n// No hooks defined.\nexport default async function hook() {\n  return {};\n}\n",
+    );
+
+    expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual({
+      author: "Acme",
+      description: "Acme OpenCode plugin",
+      homepage: "https://example.test",
+      keywords: ["opencode", "0xcraft"],
+      license: "MIT",
+      main: "index.js",
+      name: "@acme/opencode-plugin",
+      opencode: {
+        agents: ["reviewer"],
+        commands: ["ship"],
+        mcp: {
+          "local-fs": {
+            command: ["node", "server.js"],
+            enabled: true,
+            environment: { ROOT: "/repo" },
+            timeout: 30,
+            type: "local",
+          },
+        },
+        schemaVersion: "1",
+        skills: ["tdd"],
+      },
+      repository: "https://github.com/acme/plugin",
+      type: "module",
+      version: "1.2.3",
+    });
+  });
+
+  test("filesystem mode does not emit package.json", () => {
+    const artifact = emitOpenCode([agentFixture({ id: "reviewer" })], { mode: "filesystem" });
+
+    expect(artifact.files.some((file) => file.path === ".opencode-plugin/package.json")).toBe(false);
+    expect(artifact.files.some((file) => file.path === "opencode.json")).toBe(true);
+  });
+
+  test("plugin mode consolidates hooks by sorted id", () => {
+    const artifact = emitOpenCode([
+      hookFixture({ id: "zeta-hook", actions: [{ type: "run_command", command: "printf z" }] }),
+      hookFixture({ id: "alpha-hook", actions: [{ type: "run_exec", command: "node", args: ["a.js"] }] }),
+    ], { mode: "plugin" });
+
+    expect(artifact.files.map((file) => file.path)).toEqual([".opencode-plugin/index.js", ".opencode-plugin/package.json"]);
+    const index = fileContent(artifact, ".opencode-plugin/index.js");
+    expect(index.indexOf("async function hook_alpha_hook(input, ctx)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, ctx)"));
+    expect(index).toContain("await hook_alpha_hook(input, ctx);");
+    expect(index).toContain("await hook_zeta_hook(input, ctx);");
+    expect(index.indexOf("await hook_alpha_hook(input, ctx);")).toBeLessThan(index.indexOf("await hook_zeta_hook(input, ctx);"));
+  });
+
+  test("plugin mode embeds Unicode runtime_code with Node-safe base64", () => {
+    const runtimeCode = "export default async function plugin() {\n  return { event: async () => console.log('snowman ☃️ and cyrillic Ж') };\n}\n";
+    const artifact = emitOpenCode([
+      hookFixture({
+        id: "unicode-runtime",
+        actions: [{ type: "runtime_code", runtime: "opencode", body: runtimeCode }],
+      }),
+    ], { mode: "plugin" });
+
+    const index = fileContent(artifact, ".opencode-plugin/index.js");
+    expect(index).toContain(`import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}")`);
+    expect(index).toContain("await hook_unicode_runtime(input, ctx);");
+    expect(artifact.ok).toBe(true);
+  });
+
+  test("plugin mode duplicate hook ids produce error and no index artifact", () => {
+    const artifact = emitOpenCode([
+      hookFixture({ id: "dup-hook", actions: [{ type: "run_command", command: "printf one" }] }),
+      hookFixture({ id: "dup-hook", actions: [{ type: "run_command", command: "printf two" }] }),
+    ], { mode: "plugin" });
+
+    expect(artifact.ok).toBe(false);
+    expect(artifact.files.map((file) => file.path)).toEqual([]);
+    expect(artifact.diagnostics).toContainEqual(expect.objectContaining({
+      severity: "error",
+      code: "ERR_PLUGIN_DUPLICATE_HOOK_ID",
+      details: { hookId: "dup-hook", platform: "opencode" },
+    }));
+  });
+
+  test("invalid plugin package name produces error diagnostic", () => {
+    const artifact = emitOpenCode([agentFixture({ id: "reviewer" })], {
+      mode: "plugin",
+      plugin: { packageName: "Invalid Package Name" },
+    });
+
+    expect(artifact.ok).toBe(false);
+    expect(artifact.diagnostics).toContainEqual(expect.objectContaining({
+      severity: "error",
+      code: "ERR_PLUGIN_INVALID_PACKAGE_NAME",
+      details: { packageName: "Invalid Package Name", platform: "opencode" },
+    }));
+  });
 });
 
 function hookFixture(input: {
@@ -303,6 +458,7 @@ function agentFixture(input: {
   id: string;
   platform?: AgentIR["platform"];
   references?: AgentIR["references"];
+  prompt?: string;
 }): AgentIR {
   return {
     id: input.id,
@@ -314,7 +470,7 @@ function agentFixture(input: {
       role: "subagent",
       model: "gpt-5.5",
       temperature: 0.2,
-      prompt: "Review code carefully.",
+      prompt: input.prompt ?? "Review code carefully.",
     },
     references: input.references,
     platform: input.platform ?? {},

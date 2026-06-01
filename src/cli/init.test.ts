@@ -48,7 +48,7 @@ describe("runInit", () => {
         mcpEnvelope: "wrapped",
       },
       claude: {},
-      opencode: {},
+      opencode: { mode: "filesystem" },
     });
     expect(config.diagnostics).toEqual({});
     expect(fs.readFileSync(configPath(root), "utf-8")).toContain("// Schema version");
