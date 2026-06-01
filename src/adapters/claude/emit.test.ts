@@ -18,8 +18,8 @@ describe("emitClaudeHooks", () => {
     ]);
 
     expect(result.diagnostics).toEqual([]);
-    expect(Object.keys(result.artifacts)).toEqual(["hooks/hooks.json"]);
-    expect(result.artifacts["hooks/hooks.json"]).toBe(`{
+    expect(Object.keys(result.artifacts)).toEqual([".claude-plugin/hooks/hooks.json"]);
+    expect(result.artifacts[".claude-plugin/hooks/hooks.json"]).toBe(`{
   "hooks": {
     "PreToolUse": [
       {
@@ -83,7 +83,7 @@ describe("emitClaudeHooks", () => {
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ severity: "warn", code: "claude.hook.runtime_code.dropped" }),
     ]);
-    expect(result.artifacts["hooks/hooks.json"]).toBe(`{
+    expect(result.artifacts[".claude-plugin/hooks/hooks.json"]).toBe(`{
   "hooks": {}
 }
 `);
@@ -107,7 +107,7 @@ describe("emitClaudeHooks", () => {
       }),
     ]);
 
-    const parsed = JSON.parse(result.artifacts["hooks/hooks.json"]!);
+    const parsed = JSON.parse(result.artifacts[".claude-plugin/hooks/hooks.json"]!);
     const handlers = parsed.hooks.PreToolUse[0].hooks;
 
     expect(handlers).toHaveLength(7);
@@ -141,11 +141,11 @@ describe("emitClaude", () => {
 
     expect(result.ok).toBe(true);
     expect(result.files.map((file) => file.path)).toEqual([
+      ".claude-plugin/.mcp.json",
+      ".claude-plugin/agents/reviewer.md",
+      ".claude-plugin/hooks/hooks.json",
       ".claude-plugin/plugin.json",
-      ".mcp.json",
-      "agents/reviewer.md",
-      "hooks/hooks.json",
-      "skills/audit/SKILL.md",
+      ".claude-plugin/skills/audit/SKILL.md",
     ]);
     expect(JSON.parse(fileContent(result, ".claude-plugin/plugin.json"))).toEqual({
       agents: { reviewer: { description: "Review code changes.", name: "Code Reviewer" } },
@@ -163,7 +163,7 @@ describe("emitClaude", () => {
       packageMetadata: { name: "strip-test", version: "0.0.0", description: "Strip test." },
     });
 
-    const agentFile = fileContent(result, "agents/reviewer.md");
+    const agentFile = fileContent(result, ".claude-plugin/agents/reviewer.md");
 
     expect(agentFile).toContain("name: Code Reviewer");
     expect(agentFile).toContain("description: Review code changes.");
@@ -193,7 +193,7 @@ describe("emitClaude", () => {
       packageMetadata: { name: "skill-test", version: "0.0.0", description: "Skill test." },
     });
 
-    const skillFile = fileContent(result, "skills/audit/SKILL.md");
+    const skillFile = fileContent(result, ".claude-plugin/skills/audit/SKILL.md");
 
     expect(skillFile).toContain("allowed-tools:");
     expect(skillFile).toContain("disallowed-tools:");
@@ -222,15 +222,15 @@ describe("emitClaude", () => {
     });
 
     expect(result.files.map((file) => file.path)).toEqual([
+      ".claude-plugin/agents/reviewer.md",
+      ".claude-plugin/agents/reviewer/references/alpha.md",
+      ".claude-plugin/agents/reviewer/references/zeta.txt",
       ".claude-plugin/plugin.json",
-      "agents/reviewer.md",
-      "agents/reviewer/references/alpha.md",
-      "agents/reviewer/references/zeta.txt",
-      "skills/audit/references/example.md",
-      "skills/audit/SKILL.md",
+      ".claude-plugin/skills/audit/references/example.md",
+      ".claude-plugin/skills/audit/SKILL.md",
     ]);
-    expect(fileContent(result, "agents/reviewer/references/zeta.txt")).toBe("line one\nline two\n");
-    expect(fileContent(result, "skills/audit/references/example.md")).toBe("Example\n");
+    expect(fileContent(result, ".claude-plugin/agents/reviewer/references/zeta.txt")).toBe("line one\nline two\n");
+    expect(fileContent(result, ".claude-plugin/skills/audit/references/example.md")).toBe("Example\n");
   });
 
   test("emits MCP with mcpServers wrapper", () => {
@@ -239,7 +239,7 @@ describe("emitClaude", () => {
       packageMetadata: { name: "mcp-test", version: "0.0.0", description: "MCP test." },
     });
 
-    expect(JSON.parse(fileContent(result, ".mcp.json"))).toEqual({
+    expect(JSON.parse(fileContent(result, ".claude-plugin/.mcp.json"))).toEqual({
       mcpServers: {
         filesystem: {
           args: ["/tmp/workspace"],
@@ -382,7 +382,7 @@ function agentFixture(): AgentIR {
   return {
     id: "reviewer",
     kind: "agent",
-    sourcePath: "agents/reviewer/AGENT.md",
+    sourcePath: ".claude-plugin/agents/reviewer/AGENT.md",
     common: {
       name: "Code Reviewer",
       description: "Review code changes.",
@@ -414,7 +414,7 @@ function skillFixture(): SkillIR {
   return {
     id: "audit",
     kind: "skill",
-    sourcePath: "skills/audit/SKILL.md",
+    sourcePath: ".claude-plugin/skills/audit/SKILL.md",
     common: {
       name: "Audit",
       description: "Audit tool calls.",

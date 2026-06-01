@@ -68,7 +68,7 @@ const FIXTURE_IR: IRResource[] = [
   {
     id: "my-skill",
     kind: "skill",
-    sourcePath: "skills/my-skill/SKILL.md",
+    sourcePath: ".claude-plugin/skills/my-skill/SKILL.md",
     common: {
       name: "My Skill",
       description: "A helpful skill with allowed-tools.",
@@ -263,14 +263,14 @@ describe("Golden emit tests", () => {
       expect(artifact.platform).toBe("claude-code");
       const paths = artifact.files.map((f) => f.path);
       expect(paths).toContain(".claude-plugin/plugin.json");
-      expect(paths).toContain("agents/codex-agent.md");
-      expect(paths).toContain("agents/claude-agent.md");
-      expect(paths).toContain("skills/my-skill/SKILL.md");
+      expect(paths).toContain(".claude-plugin/agents/codex-agent.md");
+      expect(paths).toContain(".claude-plugin/agents/claude-agent.md");
+      expect(paths).toContain(".claude-plugin/skills/my-skill/SKILL.md");
     });
 
     test("plugin-forbidden fields absent from agent .md files", () => {
       const artifact = emitClaude(FIXTURE_IR, { mode: "claude-plugin" });
-      const claudeAgentFile = artifact.files.find((f) => f.path === "agents/claude-agent.md");
+      const claudeAgentFile = artifact.files.find((f) => f.path === ".claude-plugin/agents/claude-agent.md");
       expect(claudeAgentFile).toBeDefined();
       const content = claudeAgentFile!.content;
 
@@ -291,7 +291,7 @@ describe("Golden emit tests", () => {
 
     test("hooks/hooks.json emitted for hooks with supported actions", () => {
       const artifact = emitClaude(FIXTURE_IR, { mode: "claude-plugin" });
-      const hooksFile = artifact.files.find((f) => f.path === "hooks/hooks.json");
+      const hooksFile = artifact.files.find((f) => f.path === ".claude-plugin/hooks/hooks.json");
       expect(hooksFile).toBeDefined();
       const hooks = JSON.parse(hooksFile!.content);
       expect(hooks.hooks).toBeDefined();
@@ -299,7 +299,7 @@ describe("Golden emit tests", () => {
 
     test(".mcp.json emitted with mcpServers wrapper", () => {
       const artifact = emitClaude(FIXTURE_IR, { mode: "claude-plugin" });
-      const mcpFile = artifact.files.find((f) => f.path === ".mcp.json");
+      const mcpFile = artifact.files.find((f) => f.path === ".claude-plugin/.mcp.json");
       expect(mcpFile).toBeDefined();
       const mcp = JSON.parse(mcpFile!.content);
       expect(mcp.mcpServers?.["my-mcp"]).toBeDefined();
@@ -313,7 +313,7 @@ describe("Golden emit tests", () => {
 
     test("skill emits hyphenated allowed-tools", () => {
       const artifact = emitClaude(FIXTURE_IR, { mode: "claude-plugin" });
-      const skillFile = artifact.files.find((f) => f.path === "skills/my-skill/SKILL.md");
+      const skillFile = artifact.files.find((f) => f.path === ".claude-plugin/skills/my-skill/SKILL.md");
       expect(skillFile).toBeDefined();
       expect(skillFile!.content).toContain("allowed-tools:");
     });

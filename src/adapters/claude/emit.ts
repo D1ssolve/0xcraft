@@ -81,13 +81,13 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
   files.push(textFile(".claude-plugin/plugin.json", `${stableJson(manifest)}\n`));
 
   for (const agent of sortById(agents)) {
-    files.push(textFile(`agents/${agent.id}.md`, emitPluginAgent(agent, diagnostics, `agents/${agent.id}/references`)));
-    files.push(...referencesToArtifactFiles(agent.references, `agents/${agent.id}/references`));
+    files.push(textFile(`.claude-plugin/agents/${agent.id}.md`, emitPluginAgent(agent, diagnostics, `.claude-plugin/agents/${agent.id}/references`)));
+    files.push(...referencesToArtifactFiles(agent.references, `.claude-plugin/agents/${agent.id}/references`));
   }
 
   for (const skill of sortById(skills)) {
-    files.push(textFile(`skills/${skill.id}/SKILL.md`, emitPluginSkill(skill, `skills/${skill.id}/references`)));
-    files.push(...referencesToArtifactFiles(skill.references, `skills/${skill.id}/references`));
+    files.push(textFile(`.claude-plugin/skills/${skill.id}/SKILL.md`, emitPluginSkill(skill, `.claude-plugin/skills/${skill.id}/references`)));
+    files.push(...referencesToArtifactFiles(skill.references, `.claude-plugin/skills/${skill.id}/references`));
   }
 
   if (hooks.length > 0) {
@@ -99,7 +99,7 @@ export function emitClaude(ir: IRResource[], opts: ClaudeEmitOptions): PlatformA
   }
 
   if (mcps.length > 0) {
-    files.push(textFile(".mcp.json", `${stableJson(emitMcpJson(mcps))}\n`));
+    files.push(textFile(".claude-plugin/.mcp.json", `${stableJson(emitMcpJson(mcps))}\n`));
   }
 
   return artifact(files, diagnostics);
@@ -130,7 +130,7 @@ export function emitClaudeHooks(hooks: HookIR[]): ClaudeHookEmitResult {
   const payload: ClaudeHooksJson = { hooks: byEvent };
 
   return {
-    artifacts: { "hooks/hooks.json": `${stableJson(payload)}\n` },
+    artifacts: { ".claude-plugin/hooks/hooks.json": `${stableJson(payload)}\n` },
     diagnostics: sortDiagnostics(diagnostics),
   };
 }
