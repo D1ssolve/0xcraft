@@ -1,7 +1,7 @@
 {
   "name": "0xcraft",
-  "version": "2.0.0",
-  "description": "Agent operations plugin for OpenCode — harness-agnostic core with thin adapter layer. Orchestrates agents, skills, hooks, and MCPs with token-optimized lazy loading.",
+  "version": "3.0.0",
+  "description": "Converter-first CLI between OpenCode, Claude Code, and Codex agent platforms — file-based source layout, deterministic emit, cross-platform IR.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,44 +19,35 @@
     "0xcraft": "bin/0xcraft.js"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm --external @opencode-ai/plugin --external @opencode-ai/sdk --external zod && bun build src/core/index.ts --outdir dist/core --target bun --format esm --external zod && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm --external commander && tsc --emitDeclarationOnly",
+    "build": "bun build src/index.ts --outdir dist --target bun --format esm --external zod && bun build src/core/index.ts --outdir dist/core --target bun --format esm --external zod && bun build src/cli/index.ts --outdir dist/cli --target bun --format esm --external commander && tsc --emitDeclarationOnly",
     "build:cli": "bun build src/cli/index.ts --outdir dist/cli --target bun --format esm --external commander",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "doctor": "bun run src/cli/index.ts doctor",
-    "install-wizard": "bun run src/cli/index.ts install"
+    "doctor": "bun run src/cli/index.ts doctor"
   },
   "keywords": [
     "opencode",
-    "plugin",
+    "claude-code",
+    "codex",
     "agents",
-    "skills",
-    "orchestration",
+    "converter",
     "0xcraft"
   ],
   "author": "diss0x",
   "license": "MIT",
-  "peerDependencies": {
-    "@opencode-ai/plugin": "^1.15.4",
-    "@opencode-ai/sdk": "^1.15.4"
-  },
   "dependencies": {
     "commander": "^14.0.3",
-    "smol-toml": "^1.6.1"
+    "smol-toml": "^1.6.1",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.15.4",
-    "@opencode-ai/sdk": "^1.15.4",
     "bun-types": "^1.3.0",
     "typescript": "^6.0.0",
     "zod": "^4.4.0"
   },
   "files": [
     "dist",
-    "bin",
-    "skills",
-    "agents",
-    "templates"
+    "bin"
   ]
 }

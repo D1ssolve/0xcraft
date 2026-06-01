@@ -1,0 +1,6 @@
+{
+  "name": "my-claude-plugin",
+  "displayName": "My Claude Plugin",
+  "version": "1.0.0",
+  "description": "A test Claude plugin fixture"
+}

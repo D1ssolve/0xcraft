@@ -1,52 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DiagnosticCollector, sanitizeDetails } from "./diagnostic-collector";
-
-describe("sanitizeDetails", () => {
-  test("returns undefined when input is undefined", () => {
-    expect(sanitizeDetails(undefined)).toBeUndefined();
-  });
-
-  test("redacts top-level secret-looking keys", () => {
-    const out = sanitizeDetails({
-      token: "abc",
-      Secret: "shh",
-      password: "p",
-      Authorization: "Bearer x",
-      Cookie: "sid=1",
-      apiKey: "k",
-      safe: "ok",
-    });
-    expect(out).toEqual({
-      token: "[redacted]",
-      Secret: "[redacted]",
-      password: "[redacted]",
-      Authorization: "[redacted]",
-      Cookie: "[redacted]",
-      apiKey: "[redacted]",
-      safe: "ok",
-    });
-  });
-
-  test("redacts nested secrets recursively", () => {
-    const out = sanitizeDetails({
-      env: { TOKEN: "x", USER: "bob" },
-      list: [{ password: "p", name: "n" }],
-    });
-    expect(out).toEqual({
-      env: { TOKEN: "[redacted]", USER: "bob" },
-      list: [{ password: "[redacted]", name: "n" }],
-    });
-  });
-
-  test("passes through scalars and innocuous keys", () => {
-    expect(sanitizeDetails({ count: 3, ok: true, name: "x" })).toEqual({
-      count: 3,
-      ok: true,
-      name: "x",
-    });
-  });
-});
+import { DiagnosticCollector } from "./diagnostic-collector";
 
 describe("DiagnosticCollector", () => {
   test("collects info/warn/error", () => {
@@ -92,7 +46,7 @@ describe("DiagnosticCollector", () => {
   test("sanitizes details on build()", () => {
     const c = new DiagnosticCollector();
     c.warn("w", "msg", { token: "leak", ok: 1 });
-    expect(c.getAll()[0]?.details).toEqual({ token: "[redacted]", ok: 1 });
+    expect(c.getAll()[0]?.details).toEqual({ token: "[REDACTED]", ok: 1 });
   });
 
   test("add() sanitizes external diagnostic details", () => {
@@ -103,7 +57,7 @@ describe("DiagnosticCollector", () => {
       message: "boom",
       details: { password: "p", value: 42 },
     });
-    expect(c.getAll()[0]?.details).toEqual({ password: "[redacted]", value: 42 });
+    expect(c.getAll()[0]?.details).toEqual({ password: "[REDACTED]", value: 42 });
   });
 
   test("add() preserves diagnostic when no details", () => {

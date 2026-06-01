@@ -1,11 +1,12 @@
 /**
- * 0xcraft — Agent Operations Plugin
+ * 0xcraft v3 core — harness-agnostic domain types and IR primitives.
  *
- * Harness-agnostic core. Zero OpenCode dependencies.
- * The OpenCode adapter imports from here and wraps in plugin API.
+ * Phase 0: legacy in-tree registries removed. Phase 1 will populate this with
+ * IR types (AgentIR, SkillIR, HookIR, McpServerIR), capability matrix v2,
+ * config schema v3, diagnostic code registry, and pack schema.
  */
 
-/* -------- diagnostics (canonical) ------------------------------- */
+/* -------- diagnostics (kept from v2; refactored in Phase 1) -------- */
 export { type Diagnostic, type DiagnosticSeverity } from "./diagnostics";
 export {
   type CapabilityFeature,
@@ -15,7 +16,7 @@ export {
   CAPABILITY_FEATURES,
 } from "./diagnostics";
 
-/* -------- permission (canonical) ------------------------------- */
+/* -------- permission (kept from v2; refactored in Phase 1) --------- */
 export {
   type SandboxTier,
   type ToolVerdict,
@@ -23,43 +24,24 @@ export {
   permissionSpecSchema,
 } from "./permission";
 
-/* -------- agents ------------------------------------------------ */
-export {
-  type AgentSpec,
-  type AgentMode,
-  resolveModel,
-  builtinAgents,
-  dualModeAgents,
-  getAgentById,
-  getPrimaryAgents,
-  getSubagents,
-} from "./agents";
+/* -------- agents (spec type only; registry removed) ---------------- */
+export { type AgentSpec, type AgentMode, resolveModel } from "./agents";
 
-/* -------- skills ------------------------------------------------ */
-export { type SkillDefinition, type McpServerConfig as SkillMcpServerConfig, builtinSkills, getSkillById, getSkillsByTag, getAutoLoadSkills, getSkillsWithMcp } from "./skills";
-
-/* -------- config ----------------------------------------------- */
+/* -------- config (kept; replaced by v3 schema in Phase 1) ---------- */
 export {
   type ZeroxCraftConfig,
-  type PartialZeroxCraftConfig,
   type OpencodePlatformConfig,
-  type ClaudeCodePlatformConfig,
+  type ClaudePlatformConfig,
   type CodexPlatformConfig,
-  type ZeroxCraftConfigPlatforms,
-  type PlatformsConfig,
-  type PlatformId,
-  PLATFORM_IDS,
-  isPlatformId,
-  defaultConfig,
-  mergeConfig,
+  ConfigSchema,
+  DEFAULT_CONFIG,
   zeroxCraftConfigSchema,
   stripJsonc,
   parseJsonc,
-  sanitizeDetails,
   loadConfig,
 } from "./config";
 
-/* -------- hooks ------------------------------------------------- */
+/* -------- hooks (spec type + event enum; registry removed) --------- */
 export {
   type HookSpec,
   HookEvent,
@@ -67,12 +49,9 @@ export {
   type HookHandlerSpec,
   type HookMatchSpec,
   HOOK_EVENTS,
-  builtinHooks,
-  getHookById,
-  getEnabledHooks,
 } from "./hooks";
 
-/* -------- commands (canonical) ---------------------------------- */
+/* -------- commands (spec + registry factory) ---------------------- */
 export {
   type CommandSpec,
   type CommandArgumentSpec,
@@ -80,11 +59,9 @@ export {
   commandSpecSchema,
   commandArgumentSpecSchema,
   createCommandRegistry,
-  builtinCommands,
-  getCommandById,
 } from "./commands";
 
-/* -------- mcp --------------------------------------------------- */
+/* -------- mcp (spec types only; registry removed) ------------------ */
 export {
   type McpServerSpec,
   type McpServerStdioSpec,
@@ -93,7 +70,4 @@ export {
   type CustomToolSpec,
   type CustomToolMcpSpec,
   type CustomToolOpenCodeShortCircuitSpec,
-  builtinMcpServers,
-  getMcpByName,
-  getEnabledMcpServers,
 } from "./mcp";

@@ -1,15 +1,8 @@
 # Dependencies
-.omo/*
-!.omo/rules/
-!.omo/rules/**
-.sisyphus/*
-!.sisyphus/rules/
-!.sisyphus/rules/**
 node_modules/
 
 # Build output
-# Includes generated Claude Code plugin output:
-# dist/claude-code-plugin/0xcraft/ is ephemeral and recreated by `0xcraft claude-code generate`.
+# dist/ includes all generated adapter artifacts (ephemeral, recreated by build commands).
 dist/
 
 # Platform binaries (built, not committed)
@@ -54,23 +47,6 @@ session-ses_*.md
 plans/
 
 # Generated harness artifacts — recreated by
-# `0xcraft {claude-code,codex} generate` / `install --harness ...`.
-# Never commit:
-#   - .claude-plugin/                    claude-code filesystem plugin output
-#   - .codex/                            codex filesystem tree (config.toml, agents/, hooks/, skills/)
-#   - .codex-plugin/                     codex filesystem plugin bundle (Batch E)
-#   - .agents/skills/                    codex skills tree (copies of skills/<id>/SKILL.md)
-#   - .agents/plugins/marketplace.json   codex marketplace stub
-.claude-plugin/
+# `0xcraft {claude,codex} generate` / `install --harness ...`.
+.claude/
 .codex/
-.codex-plugin/
-.agents/skills/
-.agents/plugins/marketplace.json
-
-# Dual-mode planning artifacts (spec-driven-dual / system-architect-dual).
-# The synthesized canonical files (.ai/spec.md, .ai/adr.md, .ai/tasks.md)
-# remain tracked; per-model candidates and compare reports are local only.
-.ai/*.gpt.md
-.ai/*.sonnet.md
-.ai/spec.compare.md
-.ai/arch.compare.md

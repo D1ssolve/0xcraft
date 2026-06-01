@@ -2,68 +2,15 @@
  * DiagnosticCollector — shared mutable collector used by adapter pipelines
  * to accumulate non-fatal issues without throwing.
  *
- * Canonical home (spec §12). The old `./diagnostic.ts` module is kept as a
- * thin re-export shim for back-compat during the migration window.
- *
- * Also exports `sanitizeDetails()` which redacts secret-looking values from
- * a structured details bag before the diagnostic is printed or returned.
- * Required by spec §12 (secret redaction).
+ * Diagnostic details are sanitized before diagnostics are printed or returned.
+ * Required by spec §11 / §12 (secret redaction).
  */
 
 import type { Diagnostic, DiagnosticSeverity } from "../../core/diagnostics";
+import { sanitizeDetails } from "./secret-redaction";
 
 export type { Diagnostic, DiagnosticSeverity };
-
-/* ---------------------------------------------------------------- */
-/*  Secret redaction                                                */
-/* ---------------------------------------------------------------- */
-
-/**
- * Keys whose values are redacted by `sanitizeDetails`. Case-insensitive
- * substring match anywhere in the key name. Matches spec §12.
- */
-const SECRET_KEY_PATTERN = /token|secret|password|authorization|cookie|key/i;
-const REDACTED = "[redacted]";
-
-/**
- * Return a shallow copy of `details` with values redacted for any key
- * whose name matches `/token|secret|password|authorization|cookie|key/i`.
- *
- * Returns the input unchanged if it is `undefined`. Nested objects are
- * recursively sanitized; arrays are sanitized element-wise. Non-plain
- * values are passed through verbatim.
- *
- * MUST be called before a diagnostic with secret-bearing details is
- * printed OR returned to a caller.
- */
-export function sanitizeDetails(
-  details: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (details === undefined) return undefined;
-  return sanitizeRecord(details);
-}
-
-function sanitizeRecord(input: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (SECRET_KEY_PATTERN.test(key)) {
-      out[key] = REDACTED;
-      continue;
-    }
-    out[key] = sanitizeValue(value);
-  }
-  return out;
-}
-
-function sanitizeValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizeValue);
-  if (isPlainObject(value)) return sanitizeRecord(value);
-  return value;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+export { sanitizeDetails } from "./secret-redaction";
 
 /* ---------------------------------------------------------------- */
 /*  DiagnosticCollector                                             */
@@ -112,7 +59,7 @@ export class DiagnosticCollector {
     };
     if (diagnostic.details !== undefined) {
       const sanitized = sanitizeDetails(diagnostic.details);
-      if (sanitized !== undefined) copy.details = sanitized;
+      copy.details = sanitized;
     }
     this.entries.push(copy);
   }
@@ -144,7 +91,7 @@ export class DiagnosticCollector {
     const entry: Diagnostic = { severity, code, message };
     if (details !== undefined) {
       const sanitized = sanitizeDetails(details);
-      if (sanitized !== undefined) entry.details = sanitized;
+      entry.details = sanitized;
     }
     return entry;
   }

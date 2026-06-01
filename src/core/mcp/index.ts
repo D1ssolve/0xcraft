@@ -6,11 +6,6 @@ export {
   type McpServerConfigEntry,
 } from "./mcp-types";
 export {
-  builtinMcpServers,
-  getMcpByName,
-  getEnabledMcpServers,
-} from "./mcp-registry";
-export {
   type CustomToolSpec,
   type CustomToolMcpSpec,
   type CustomToolOpenCodeShortCircuitSpec,

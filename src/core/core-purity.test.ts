@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, dirname, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 const CORE_DIR = resolve(__dirname);
 
@@ -8,6 +8,7 @@ const IMPORT_RE = /^\s*(?:import|export)[^"']*from\s+["']([^"']+)["']/gm;
 const DYNAMIC_IMPORT_RE = /import\s*\(\s*["']([^"']+)["']\s*\)/g;
 
 type Violation = { file: string; line: number; importPath: string; reason: string };
+type ImportLineViolation = { file: string; line: number; token: string };
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -52,9 +53,6 @@ function checkImport(
   if (importPath.startsWith("@anthropic-ai/")) {
     return { forbidden: true, reason: "@anthropic-ai/* not allowed in core" };
   }
-  if (importPath === "smol-toml" || importPath.startsWith("smol-toml/")) {
-    return { forbidden: true, reason: "smol-toml not allowed in core" };
-  }
   if (importPath === "commander" || importPath.startsWith("commander/")) {
     return { forbidden: true, reason: "commander not allowed in core" };
   }
@@ -75,10 +73,37 @@ function checkImport(
       if (lower.includes("/src/cli/") || lower.endsWith("/cli")) {
         return { forbidden: true, reason: "import escapes into src/cli/" };
       }
+      if (lower.includes("/src/converter/") || lower.endsWith("/converter")) {
+        return { forbidden: true, reason: "import escapes into src/converter/" };
+      }
       return { forbidden: true, reason: "relative import escapes src/core/" };
     }
   }
   return { forbidden: false };
+}
+
+const FORBIDDEN_IMPORT_LINE_TOKENS = [
+  'from "@opencode-ai/',
+  'from "@anthropic-ai/',
+  'from "commander"',
+  'from "../adapters/',
+  'from "../cli/',
+  'from "../converter/',
+] as const;
+
+function scanFileForForbiddenImportLineTokens(file: string): ImportLineViolation[] {
+  const content = readFileSync(file, "utf8");
+  const lines = content.split("\n");
+  const violations: ImportLineViolation[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const normalized = lines[i]!.replaceAll("'", '"');
+    for (const token of FORBIDDEN_IMPORT_LINE_TOKENS) {
+      if (normalized.includes(token)) {
+        violations.push({ file, line: i + 1, token });
+      }
+    }
+  }
+  return violations;
 }
 
 function scanFile(file: string): Violation[] {
@@ -133,9 +158,14 @@ describe("core purity: forbidden import detection (fixtures)", () => {
       expectForbidden: true,
     },
     {
-      name: "smol-toml",
+      name: "allowed: smol-toml",
       src: `import { parse } from "smol-toml";`,
-      expectForbidden: true,
+      expectForbidden: false,
+    },
+    {
+      name: "allowed: yaml",
+      src: `import { parse } from "yaml";`,
+      expectForbidden: false,
     },
     {
       name: "commander",
@@ -195,6 +225,22 @@ describe("core purity: real scan", () => {
     }
     expect(all).toEqual([]);
   });
+
+  test("src/core/**/*.ts import lines contain no forbidden platform or layer tokens", () => {
+    const selfFile = resolve(__filename);
+    const files = walk(CORE_DIR).filter((f) => resolve(f) !== selfFile);
+    const all: ImportLineViolation[] = [];
+    for (const f of files) {
+      all.push(...scanFileForForbiddenImportLineTokens(f));
+    }
+    if (all.length > 0) {
+      const msg = all
+        .map((v) => `${relative(CORE_DIR, v.file)}:${v.line}: contains ${v.token}`)
+        .join("\n");
+      console.error("Core forbidden import-line token violations:\n" + msg);
+    }
+    expect(all).toEqual([]);
+  });
 });
 
 /**
@@ -205,14 +251,10 @@ describe("core purity: real scan", () => {
  * Per ADR §2 and tasks T-0.0 acceptance criteria.
  */
 const FORBIDDEN_NAMES = [
-  "PreToolUse",
-  "PostToolUse",
-  "permissionMode",
   "OpenCodeAgent",
   "OpencodeAgent",
   "ClaudeCodeAgent",
   "CodexAgent",
-  "ApprovalPolicy",
 ] as const;
 
 type NameViolation = { file: string; line: number; name: string };
@@ -281,7 +323,7 @@ describe("core purity: forbidden exported names", () => {
     const osMod = require("node:os") as typeof import("node:os");
     const tmp = join(osMod.tmpdir(), `0xcraft-scan-fixture-1-${process.pid}.ts`);
     try {
-      const src = `// @deprecated alias — kept for one migration window\nexport type PreToolUse = unknown;\n`;
+      const src = `// @deprecated alias — kept for one migration window\nexport type OpenCodeAgent = unknown;\n`;
       fs.writeFileSync(tmp, src, "utf8");
       const violations = scanFileForForbiddenNames(tmp);
       expect(violations).toEqual([]);
@@ -299,11 +341,11 @@ describe("core purity: forbidden exported names", () => {
     const osMod = require("node:os") as typeof import("node:os");
     const tmp = join(osMod.tmpdir(), `0xcraft-scan-fixture-2-${process.pid}.ts`);
     try {
-      const src = `export type PreToolUse = unknown;\n`;
+      const src = `export type OpenCodeAgent = unknown;\n`;
       fs.writeFileSync(tmp, src, "utf8");
       const violations = scanFileForForbiddenNames(tmp);
       expect(violations.length).toBe(1);
-      expect(violations[0]!.name).toBe("PreToolUse");
+      expect(violations[0]!.name).toBe("OpenCodeAgent");
     } finally {
       try {
         require("node:fs").unlinkSync(tmp);

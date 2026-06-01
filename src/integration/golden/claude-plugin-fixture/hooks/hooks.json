@@ -1,0 +1,31 @@
+{
+  "description": "Hooks for the Claude plugin fixture",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo",
+            "args": ["pre-tool-use triggered"],
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "https://hooks.example.com/post-tool",
+            "headers": {
+              "Content-Type": "application/json"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

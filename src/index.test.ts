@@ -1,18 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import plugin from "./index";
-import { createPlugin } from "./adapters/opencode/index";
-import { builtinAgents } from "./core";
+import * as entry from "./index";
 
-describe("0xcraft package entry", () => {
-  test("default export is an OpenCode plugin function", () => {
-    expect(typeof plugin).toBe("function");
+describe("0xcraft v3 package entry", () => {
+  test("no default plugin export", () => {
+    expect((entry as { default?: unknown }).default).toBeUndefined();
   });
 
-  test("default export points to the OpenCode adapter plugin", () => {
-    expect(plugin).toBe(createPlugin);
-  });
-
-  test("core exports remain available from separate entry", () => {
-    expect(builtinAgents.length).toBeGreaterThan(0);
+  test("no createPlugin export", () => {
+    expect((entry as Record<string, unknown>).createPlugin).toBeUndefined();
   });
 });

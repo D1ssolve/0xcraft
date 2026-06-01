@@ -1,22 +1,16 @@
 /**
- * Cross-adapter purity guard (T-0.0, ADR §1).
+ * Cross-adapter purity guard (T-1.9, ADR §3).
  *
- * Each per-harness adapter (`opencode/`, `claude-code/`, `codex/`) may import
- * from `core/`, `_shared/`, and its own platform SDK — never from a sibling
- * adapter. This test scans every `.ts` file under `src/adapters/{opencode,
- * claude-code, codex}/` and flags any import that resolves into a sibling
- * adapter directory.
- *
- * Bare-specifier carve-out: also forbids sibling SDK imports
- * (`@opencode-ai/*` inside `claude-code/` or `codex/`; `@anthropic-ai/*` and
- * `smol-toml` outside their owning adapter).
+ * Each v3 adapter (`opencode/`, `claude/`, `codex/`) may import from `core/`
+ * and `_shared/` — never from a sibling adapter. Empty placeholder adapter dirs
+ * are skipped during early phases.
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 const ADAPTERS_DIR = resolve(__dirname);
-const SIBLINGS = ["opencode", "claude-code", "codex"] as const;
+const SIBLINGS = ["opencode", "claude", "codex"] as const;
 type Adapter = (typeof SIBLINGS)[number];
 
 const IMPORT_RE = /^\s*(?:import|export)[^"']*from\s+["']([^"']+)["']/gm;
@@ -56,7 +50,7 @@ function findImports(content: string): { path: string; line: number }[] {
 function adapterOf(file: string): Adapter | null {
   const rel = relative(ADAPTERS_DIR, file);
   const first = rel.split("/")[0];
-  if (first === "opencode" || first === "claude-code" || first === "codex") {
+  if (first === "opencode" || first === "claude" || first === "codex") {
     return first;
   }
   return null;
@@ -67,16 +61,14 @@ function checkImport(
   fromFile: string,
   owner: Adapter,
 ): { forbidden: true; reason: string } | { forbidden: false } {
-  // Bare-specifier sibling SDK check.
-  if (owner !== "opencode") {
-    if (importPath === "@opencode-ai/plugin" || importPath.startsWith("@opencode-ai/")) {
-      return {
-        forbidden: true,
-        reason: `${owner} adapter must not import @opencode-ai/*`,
-      };
-    }
+  // v3 adapters are filesystem emit/import adapters. No OpenCode runtime SDKs.
+  if (importPath === "@opencode-ai/plugin" || importPath.startsWith("@opencode-ai/")) {
+    return {
+      forbidden: true,
+      reason: `${owner} adapter must not import @opencode-ai/*`,
+    };
   }
-  if (owner !== "claude-code") {
+  if (owner !== "claude") {
     if (importPath.startsWith("@anthropic-ai/")) {
       return {
         forbidden: true,
@@ -95,7 +87,7 @@ function checkImport(
     }
     const first = rel.split("/")[0];
     if (
-      (first === "opencode" || first === "claude-code" || first === "codex") &&
+      (first === "opencode" || first === "claude" || first === "codex") &&
       first !== owner
     ) {
       return {
@@ -123,20 +115,20 @@ function scanFile(file: string, owner: Adapter): Violation[] {
 describe("cross-adapter purity: fixture cases", () => {
   const fixtureCodex = join(ADAPTERS_DIR, "codex", "fake.ts");
   const fixtureOpencode = join(ADAPTERS_DIR, "opencode", "fake.ts");
-  const fixtureClaude = join(ADAPTERS_DIR, "claude-code", "fake.ts");
+  const fixtureClaude = join(ADAPTERS_DIR, "claude", "fake.ts");
 
   test("codex importing relative ../opencode/ is forbidden", () => {
     const r = checkImport("../opencode/index", fixtureCodex, "codex");
     expect(r.forbidden).toBe(true);
   });
 
-  test("claude-code importing relative ../codex/ is forbidden", () => {
-    const r = checkImport("../codex/index", fixtureClaude, "claude-code");
+  test("claude importing relative ../codex/ is forbidden", () => {
+    const r = checkImport("../codex/index", fixtureClaude, "claude");
     expect(r.forbidden).toBe(true);
   });
 
-  test("opencode importing relative ../claude-code/ is forbidden", () => {
-    const r = checkImport("../claude-code/index", fixtureOpencode, "opencode");
+  test("opencode importing relative ../claude/ is forbidden", () => {
+    const r = checkImport("../claude/index", fixtureOpencode, "opencode");
     expect(r.forbidden).toBe(true);
   });
 
@@ -145,8 +137,8 @@ describe("cross-adapter purity: fixture cases", () => {
     expect(r.forbidden).toBe(true);
   });
 
-  test("claude-code importing @opencode-ai/sdk is forbidden", () => {
-    const r = checkImport("@opencode-ai/sdk", fixtureClaude, "claude-code");
+  test("claude importing @opencode-ai/sdk is forbidden", () => {
+    const r = checkImport("@opencode-ai/sdk", fixtureClaude, "claude");
     expect(r.forbidden).toBe(true);
   });
 
@@ -155,14 +147,14 @@ describe("cross-adapter purity: fixture cases", () => {
     expect(r.forbidden).toBe(true);
   });
 
-  test("opencode importing @opencode-ai/plugin is allowed", () => {
+  test("opencode importing @opencode-ai/plugin is forbidden in v3", () => {
     const r = checkImport("@opencode-ai/plugin", fixtureOpencode, "opencode");
-    expect(r.forbidden).toBe(false);
+    expect(r.forbidden).toBe(true);
   });
 
   test("any adapter importing relative ../_shared/ is allowed", () => {
     expect(checkImport("../_shared/diagnostic", fixtureCodex, "codex").forbidden).toBe(false);
-    expect(checkImport("../_shared/frontmatter", fixtureClaude, "claude-code").forbidden).toBe(
+    expect(checkImport("../_shared/frontmatter", fixtureClaude, "claude").forbidden).toBe(
       false,
     );
     expect(
@@ -182,11 +174,19 @@ describe("cross-adapter purity: fixture cases", () => {
 });
 
 describe("cross-adapter purity: real scan", () => {
-  test("src/adapters/{opencode,claude-code,codex}/**/*.ts has zero sibling imports", () => {
+  test("src/adapters/{opencode,claude,codex}/**/*.ts has zero sibling imports", () => {
     const selfFile = resolve(__filename);
     const all: Violation[] = [];
     for (const owner of SIBLINGS) {
       const ownerDir = join(ADAPTERS_DIR, owner);
+      // Phase 0: adapter dirs may be empty placeholders. Skip non-existent.
+      let dirExists = false;
+      try {
+        dirExists = statSync(ownerDir).isDirectory();
+      } catch {
+        dirExists = false;
+      }
+      if (!dirExists) continue;
       const files = walk(ownerDir).filter((f) => resolve(f) !== selfFile);
       for (const f of files) {
         all.push(...scanFile(f, owner));
@@ -223,6 +223,13 @@ describe("cross-adapter purity: real scan", () => {
 
     for (const owner of SIBLINGS) {
       const ownerDir = join(ADAPTERS_DIR, owner);
+      let dirExists = false;
+      try {
+        dirExists = statSync(ownerDir).isDirectory();
+      } catch {
+        dirExists = false;
+      }
+      if (!dirExists) continue;
       const files = walk(ownerDir).filter((f) => resolve(f) !== selfFile);
       const forbiddenSubstrings = SIBLINGS
         .filter((s) => s !== owner)
