@@ -130,7 +130,7 @@ function emitAgentFiles(agent: AgentIR, diagnostics: Diagnostic[], resolver: Ope
     model: agent.platform.opencode?.model ?? agent.common.model,
     temperature: agent.platform.opencode?.temperature ?? agent.common.temperature,
     mcpServers: agent.platform.opencode?.mcpServers ?? agent.common.mcpServers,
-    permission: agent.platform.opencode?.permissions ?? agent.common.permissions?.platform?.opencode,
+    permission: agent.platform.opencode?.permission ?? agent.common.permissions?.platform?.opencode,
     color: agent.platform.opencode?.color,
     tools: agent.platform.opencode?.tools,
     enabled: agent.platform.opencode?.enabled,

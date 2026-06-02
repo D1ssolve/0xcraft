@@ -40,7 +40,7 @@ export const OpenCodeAgentMeta = z.object({
   color: z.string().optional(),
   temperature: z.number().optional(),
   tools: z.record(z.string(), z.unknown()).optional(),
-  permissions: z.record(z.string(), z.unknown()).optional(),
+  permission: z.record(z.string(), z.unknown()).optional(),
   mcpServers: z.array(z.string()).optional(),
   plugin: z.object({
     npm: z.string().optional(),
