@@ -15,6 +15,9 @@ export const OpenCodeMcpMeta = z.record(z.string(), z.unknown());
 
 export const ClaudeMcpMeta = z.object({
   wrapper: z.literal("mcpServers").optional(),
+  cwd: z.string().optional(),
+  oauth: z.record(z.string(), z.unknown()).optional(),
+  alwaysLoad: z.boolean().optional(),
 }).strict();
 
 export const CodexMcpMeta = z.object({
@@ -28,7 +31,18 @@ export const CodexMcpMeta = z.object({
     }).strict(),
   ])).optional(),
   bearer_token_env_var: z.string().optional(),
+  http_headers: z.record(z.string(), z.string()).optional(),
   env_http_headers: z.record(z.string(), z.string()).optional(),
+  experimental_environment: z.enum(["remote"]).optional(),
+  startup_timeout_sec: z.number().optional(),
+  tool_timeout_sec: z.number().optional(),
+  required: z.boolean().optional(),
+  enabled_tools: z.array(z.string()).optional(),
+  disabled_tools: z.array(z.string()).optional(),
+  default_tools_approval_mode: z.enum(["auto", "prompt", "approve"]).optional(),
+  tools: z.record(z.string(), z.object({
+    approval_mode: z.enum(["auto", "prompt", "approve"]).optional(),
+  }).strict()).optional(),
 }).strict();
 
 export const McpServerCommonIR = z.object({

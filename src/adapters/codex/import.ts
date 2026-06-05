@@ -111,6 +111,7 @@ interface CodexMcpServerDef {
   cwd?: string;
   env?: Record<string, string>;
   env_vars?: Array<string | CodexEnvVarRef>;
+  experimental_environment?: "remote";
   url?: string;
   bearer_token_env_var?: string;
   http_headers?: Record<string, string>;
@@ -119,8 +120,11 @@ interface CodexMcpServerDef {
   startup_timeout_ms?: number;
   tool_timeout_sec?: number;
   enabled?: boolean;
+  required?: boolean;
   enabled_tools?: string[];
   disabled_tools?: string[];
+  default_tools_approval_mode?: "auto" | "prompt" | "approve";
+  tools?: Record<string, { approval_mode?: "auto" | "prompt" | "approve" }>;
   [key: string]: unknown;
 }
 
@@ -471,6 +475,12 @@ function mapCodexMcpServer(
   if (def.cwd !== undefined) platform.cwd = def.cwd;
   if (def.env_vars !== undefined) platform.env_vars = def.env_vars;
   if (def.bearer_token_env_var !== undefined) platform.bearer_token_env_var = def.bearer_token_env_var;
+  if (def.experimental_environment !== undefined) platform.experimental_environment = def.experimental_environment;
+  if (def.startup_timeout_sec !== undefined) platform.startup_timeout_sec = def.startup_timeout_sec;
+  if (def.tool_timeout_sec !== undefined) platform.tool_timeout_sec = def.tool_timeout_sec;
+  if (def.required !== undefined) platform.required = def.required;
+  if (def.default_tools_approval_mode !== undefined) platform.default_tools_approval_mode = def.default_tools_approval_mode;
+  if (def.tools !== undefined) platform.tools = def.tools;
   if (def.env_http_headers !== undefined) platform.env_http_headers = def.env_http_headers;
   if (def.http_headers !== undefined) platform.http_headers = def.http_headers;
   if (def.enabled !== undefined) common.enabled = def.enabled;

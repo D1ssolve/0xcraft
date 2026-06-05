@@ -93,7 +93,7 @@ export async function runBuildCommand(
       diagnostic("error", "ERR_UNSUPPORTED_MODE", "Unsupported build target.", { target: options.target }),
     ], options.strict === true);
     report(finalDiagnostics, options.json === true, stdout, stderr);
-    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics), artifacts };
+    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics, options.strict === true), artifacts };
   }
 
   const mode = parseClaudeMode(options.mode ?? "claude-plugin");
@@ -102,7 +102,7 @@ export async function runBuildCommand(
       diagnostic("error", "ERR_UNSUPPORTED_MODE", "Unsupported Claude build mode.", { mode: options.mode }),
     ], options.strict === true);
     report(finalDiagnostics, options.json === true, stdout, stderr);
-    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics), artifacts };
+    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics, options.strict === true), artifacts };
   }
 
   let config: ZeroxCraftConfig | undefined;
@@ -118,7 +118,7 @@ export async function runBuildCommand(
     diagnostics.push(...packDiagnostics);
     const sourceRoot = path.resolve(projectDir, config.sourceRoot);
     const localRawFiles = loadSourceTree(sourceRoot, LOADER_PLATFORMS);
-    const rawFiles = [...localRawFiles, ...packRawFiles];
+    const rawFiles = filterDisabledResources([...localRawFiles, ...packRawFiles], config);
     ir = mergeAllResources(rawFiles, config, {});
     diagnostics.push(...ir.flatMap((resource) => resource.diagnostics ?? []));
   } catch (error) {
@@ -155,7 +155,7 @@ export async function runBuildCommand(
   }
 
   const finalDiagnostics = finalizeDiagnostics(diagnostics, options.strict === true);
-  const exitCode = exitFromDiagnostics(finalDiagnostics);
+  const exitCode = exitFromDiagnostics(finalDiagnostics, options.strict === true);
 
   if (exitCode !== 1 && options.validate !== true) {
     for (const plan of artifactPlans) {
@@ -169,9 +169,23 @@ export async function runBuildCommand(
     }
   }
 
-  const finalExitCode = exitFromDiagnostics(finalDiagnostics);
+  const finalExitCode = exitFromDiagnostics(finalDiagnostics, options.strict === true);
   report(finalDiagnostics, options.json === true, stdout, stderr);
   return { diagnostics: finalDiagnostics, exitCode: finalExitCode, artifacts };
+}
+
+function filterDisabledResources(rawFiles: RawResourceFile[], config: ZeroxCraftConfig): RawResourceFile[] {
+  const disabledMap: Record<string, string[]> = {
+    agent: config.disabled.agents,
+    skill: config.disabled.skills,
+    hook: config.disabled.hooks,
+    mcp: config.disabled.mcpServers,
+  };
+
+  return rawFiles.filter((file) => {
+    const disabledList = disabledMap[file.kind];
+    return disabledList === undefined || !disabledList.includes(file.id);
+  });
 }
 
 function parseTarget(value: string): BuildTarget | undefined {
@@ -261,9 +275,9 @@ function upgradeWarnToError(diagnostic: Diagnostic): Diagnostic {
   return diagnostic.severity === "warn" ? { ...diagnostic, severity: "error" } : diagnostic;
 }
 
-function exitFromDiagnostics(diagnostics: Diagnostic[]): 0 | 1 | 2 {
+function exitFromDiagnostics(diagnostics: Diagnostic[], strict: boolean): 0 | 1 | 2 {
   if (diagnostics.some((entry) => entry.severity === "error")) return 1;
-  if (diagnostics.some((entry) => entry.severity === "warn")) return 2;
+  if (strict && diagnostics.some((entry) => entry.severity === "warn")) return 2;
   return 0;
 }
 

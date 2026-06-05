@@ -161,7 +161,7 @@ interface ClaudeMcpJson {
 }
 
 interface ClaudeMcpServerDef {
-  type?: "stdio" | "http" | "sse" | "streamable-http";
+  type?: "stdio" | "http" | "sse" | "streamable-http" | "ws";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -339,7 +339,10 @@ function importClaudeAgent(
     prompt,
   };
 
-  if (fm.model !== undefined) common.model = resolveModelAlias(fm.model);
+  if (fm.model !== undefined) {
+    const normalizedModel = normalizeClaudeModelAlias(fm.model);
+    if (normalizedModel !== undefined) common.model = normalizedModel;
+  }
   if (fm.maxTurns !== undefined) common.maxTurns = fm.maxTurns;
   if (fm.memory !== undefined) common.memory = { type: fm.memory };
 
@@ -599,7 +602,7 @@ function mapMcpServer(
   filePath: string,
   diagnostics: Diagnostic[],
 ): McpServerIR | undefined {
-  const transport = resolveTransport(def.type, id, diagnostics);
+  const transport = resolveTransport(def, id, diagnostics);
   if (transport === undefined) return undefined;
 
   const common: Record<string, unknown> = {
@@ -618,7 +621,10 @@ function mapMcpServer(
     if (def.headers !== undefined) common.headers = def.headers;
   }
 
-  if (def.cwd !== undefined) common.cwd = def.cwd;
+  const platform: Record<string, unknown> = {};
+  if (def.cwd !== undefined) platform.cwd = def.cwd;
+  if (def.oauth !== undefined) platform.oauth = def.oauth;
+  if (def.alwaysLoad !== undefined) platform.alwaysLoad = def.alwaysLoad;
 
   return {
     id,
@@ -630,19 +636,32 @@ function mapMcpServer(
       emitShape: "wrapped",
       wrapperKey: "mcpServers",
     },
-    platform: {},
+    platform: { claude: Object.keys(platform).length > 0 ? platform : undefined },
     provenance: { importedFrom: "claude-code", sourceFiles: [filePath] },
     _sources: {},
   } as McpServerIR;
 }
 
 function resolveTransport(
-  type: string | undefined,
+  def: ClaudeMcpServerDef,
   id: string,
   diagnostics: Diagnostic[],
-): "stdio" | "http" | undefined {
-  if (type === undefined || type === "stdio") return "stdio";
+): "stdio" | "http" | "sse" | undefined {
+  const type = def.type;
+  if (type === undefined) {
+    if (def.url !== undefined && def.command === undefined) return "http";
+    if (def.command !== undefined) return "stdio";
+    diagnostics.push({
+      severity: "warn",
+      code: "WARN_UNRECOGNIZED_PLATFORM_FIELD",
+      message: `MCP server ${id} has neither command nor url; skipping.`,
+      details: { id },
+    });
+    return undefined;
+  }
+  if (type === "stdio") return "stdio";
   if (type === "http") return "http";
+  if (type === "sse") return "sse";
   if (type === "streamable-http") {
     diagnostics.push({
       severity: "info",
@@ -652,11 +671,11 @@ function resolveTransport(
     });
     return "http";
   }
-  if (type === "sse") {
+  if (type === "ws") {
     diagnostics.push({
       severity: "warn",
-      code: "codex.mcp.sse.dropped",
-      message: `MCP server ${id} uses 'sse' transport; normalized to 'http'.`,
+      code: "claude.mcp.ws.normalized",
+      message: `MCP server ${id} uses 'ws' transport; normalized to 'http'.`,
       details: { id, originalType: type },
     });
     return "http";
@@ -685,14 +704,8 @@ function normalizeToolList(value: string | string[] | undefined): string[] | und
   return value.split(/\s+/).filter(Boolean);
 }
 
-function resolveModelAlias(model: string): string {
-  const aliases: Record<string, string> = {
-    sonnet: "claude-sonnet-4-20250514",
-    opus: "claude-opus-4-20250514",
-    haiku: "claude-haiku-3-20240307",
-  };
-  if (model === "inherit") return "";
-  return aliases[model] ?? model;
+function normalizeClaudeModelAlias(model: string): string | undefined {
+  return model === "inherit" ? undefined : model;
 }
 
 function readJsonFile<T>(filePath: string, diagnostics: Diagnostic[]): T | undefined {

@@ -246,11 +246,15 @@ function emitMcpJson(mcps: McpServerIR[]): { mcpServers: Record<string, Record<s
 
 function emitMcpServer(mcp: McpServerIR): Record<string, unknown> {
   const common = mcp.common;
+  const claude = mcp.platform.claude;
   if (common.transport === "stdio") {
     return omitUndefined({
       command: common.command,
       args: common.args,
       env: common.env,
+      cwd: claude?.cwd,
+      oauth: claude?.oauth,
+      alwaysLoad: claude?.alwaysLoad,
     });
   }
 
@@ -258,6 +262,9 @@ function emitMcpServer(mcp: McpServerIR): Record<string, unknown> {
     type: common.transport,
     url: common.url,
     headers: common.headers,
+    cwd: claude?.cwd,
+    oauth: claude?.oauth,
+    alwaysLoad: claude?.alwaysLoad,
   });
 }
 

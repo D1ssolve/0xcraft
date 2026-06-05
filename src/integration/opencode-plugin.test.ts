@@ -22,7 +22,7 @@ describe("OpenCode plugin mode integration", () => {
     expect(artifact.files.some((file) => file.path === "opencode.json")).toBe(false);
   });
 
-  test("IT-02 package.json declares standard ESM entrypoint fields", () => {
+  test("IT-02 package.json declares modern plugin package fields", () => {
     const artifact = emitOpenCode([
       commandFixture({ id: "z-ship" }),
       agentFixture({ id: "z-reviewer" }),
@@ -32,12 +32,20 @@ describe("OpenCode plugin mode integration", () => {
       skillFixture({ id: "a-tdd" }),
     ], { mode: "plugin" });
 
-    expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual(expect.objectContaining({
-      type: "module",
-      main: "index.js",
-      name: "0xcraft-opencode-plugin",
-      version: "0.0.0",
-    }));
+    expect(
+      JSON.parse(fileContent(artifact, ".opencode-plugin/package.json")),
+    ).toEqual(
+      expect.objectContaining({
+        exports: "./index.js",
+        files: ["index.js", "agents", "commands", "skills", "hooks"],
+        main: "index.js",
+        type: "module",
+        sideEffects: false,
+        name: "0xcraft-opencode-plugin",
+        dependencies: {},
+        version: "0.0.0",
+      }),
+    );
     expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json")).opencode).toBeUndefined();
   });
 
@@ -73,15 +81,15 @@ describe("OpenCode plugin mode integration", () => {
     expect(JSON.stringify(emitOpenCode(ir, { mode: "plugin" }))).toBe(JSON.stringify(emitOpenCode(ir, { mode: "plugin" })));
   });
 
-  test("IT-05 sorts hook functions and dispatcher calls by hook id in index.js", () => {
+  test("IT-05 sorts hook functions and hook factory registry by hook id in index.js", () => {
     const artifact = emitOpenCode([
       hookFixture({ id: "zeta-hook", actions: [{ type: "run_command", command: "printf z" }] }),
       hookFixture({ id: "alpha-hook", actions: [{ type: "run_command", command: "printf a" }] }),
     ], { mode: "plugin" });
 
     const index = fileContent(artifact, ".opencode-plugin/index.js");
-    expect(index.indexOf("async function hook_alpha_hook(input, ctx)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, ctx)"));
-    expect(index.indexOf("await hook_alpha_hook(input, ctx);")).toBeLessThan(index.indexOf("await hook_zeta_hook(input, ctx);"));
+    expect(index.indexOf("async function hook_alpha_hook(input, options)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, options)"));
+    expect(index.indexOf('"hook_alpha_hook"')).toBeLessThan(index.indexOf('"hook_zeta_hook"'));
   });
 
   test("IT-06 emits plugin function with config hook when no runtime hooks exist", () => {
@@ -109,7 +117,7 @@ describe("OpenCode plugin mode integration", () => {
     }));
   });
 
-  test("IT-08 embeds Unicode runtime_code in plugin mode index.js", () => {
+  test("IT-08 emits runtime_code hooks as separate files in plugin mode", () => {
     const runtimeCode = "export default async function plugin() {\n  return { event: async () => console.log('unicode ☃️ Ж') };\n}\n";
     const artifact = emitOpenCode([
       hookFixture({
@@ -120,8 +128,9 @@ describe("OpenCode plugin mode integration", () => {
 
     expect(artifact.ok).toBe(true);
     expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain(
-      `import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}")`,
+      `import(join(__dirname, "hooks", "unicode-runtime.js"))`,
     );
+    expect(fileContent(artifact, ".opencode-plugin/hooks/unicode-runtime.js")).toBe(runtimeCode);
   });
 });
 
