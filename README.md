@@ -1,12 +1,6 @@
-<!-- <CENTERED SECTION FOR GITHUB DISPLAY> -->
-
-<div align="center">
+# 0xcraft
 
 [![0xcraft](./.github/assets/hero.png)](https://github.com/0xcraft/0xcraft#0xcraft)
-
-</div>
-
-# 0xcraft
 
 0xcraft converts agentic framework configuration between OpenCode, Claude Code, and OpenAI Codex. It reads platform files into a platform-neutral IR, then emits deterministic filesystem artifacts for the target platform.
 
@@ -233,11 +227,24 @@ Plugin mode layout:
     <id>.md
 ```
 
-The emitted `index.js` exports an OpenCode plugin function. Its `config` hook adds agents, commands, MCP servers, and the generated `skills/` folder to OpenCode's merged config, so it can be referenced directly from `opencode.json`:
+The emitted `index.js` exports an OpenCode plugin function. Its `config` hook adds agents, commands, MCP servers, and the generated `skills/` folder to OpenCode's merged config.
+
+For local development, place plugin files in `.opencode/plugins/` (autoloaded by OpenCode) and do not reference absolute file paths in `opencode.json`.
+
+Local development config example:
 
 ```json
 {
-  "plugin": ["/absolute/path/to/.opencode-plugin/index.js"]
+  "$schema": "https://opencode.ai/config.json"
+}
+```
+
+Package mode config example (published npm package):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["@my-org/opencode-agents"]
 }
 ```
 
@@ -248,7 +255,13 @@ The emitted `package.json` keeps standard ESM package metadata:
   "name": "@my-org/opencode-agents",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js"
+  "main": "index.js",
+  "exports": "./index.js",
+  "files": ["index.js", "agents", "commands", "skills"],
+  "sideEffects": false,
+  "dependencies": {
+    "@opencode-ai/plugin": ">=1.15.12"
+  }
 }
 ```
 
@@ -257,8 +270,17 @@ All hooks are consolidated into a single `index.js` with sorted, named inner fun
 Plugin mode is opt-in via CLI or config:
 
 ```bash
-# CLI override
+# Local development build (filesystem mode)
+0xcraft build --target opencode --opencode-mode filesystem --force
+
+# Publish build (plugin package mode)
 0xcraft build --target opencode --opencode-mode plugin --force
+
+# npm scripts
+bun run build:local
+bun run public:prepare
+bun run public:pack
+bun run public:publish
 
 # Or set in .0xcraft/config.json
 {

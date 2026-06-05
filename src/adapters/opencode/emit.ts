@@ -216,23 +216,24 @@ function emitPluginPackageJson(
 
   const keywords = normalizePluginKeywords(opts?.keywords);
 
-  const manifest = sortedObject(removeUndefined({
-    name: packageName,
-    version: opts?.version ?? "0.0.0",
-    type: "module",
-    exports: "./index.js",
-    files: ["index.js", "agents", "commands", "skills"],
-    sideEffects: false,
-    description: opts?.description,
-    license: opts?.license,
-    author: opts?.author,
-    homepage: opts?.homepage,
-    repository: opts?.repository,
-    keywords,
-    peerDependencies: {
-      "@opencode-ai/plugin": ">=1.0.0",
-    },
-  }));
+  const manifest = sortedObject(
+    removeUndefined({
+      name: packageName,
+      version: opts?.version ?? "0.0.0",
+      type: "module",
+      main: "index.js",
+      exports: "./index.js",
+      files: ["index.js", "agents", "commands", "skills", "hooks"],
+      sideEffects: false,
+      description: opts?.description,
+      license: opts?.license,
+      author: opts?.author,
+      homepage: opts?.homepage,
+      repository: opts?.repository,
+      keywords,
+      dependencies: {},
+    }),
+  );
 
   return { path: ".opencode-plugin/package.json", content: `${stableStringify(manifest)}\n`, mode: 0o644 };
 }
@@ -442,7 +443,8 @@ export function emitPluginModeHooks(
   }
 
   const functions: string[] = [];
-  const dispatcherCalls: string[] = [];
+  const hookFactories: string[] = [];
+  const hookFiles: Record<string, string> = {};
 
   for (const hook of sortedHooks) {
     const translatedActions: HookActionIR[] = [];
@@ -462,8 +464,12 @@ export function emitPluginModeHooks(
     }
 
     const functionName = pluginHookFunctionName(hook.id);
-    functions.push(emitPluginModeHookFunction(functionName, hook, translatedActions, diagnostics));
-    dispatcherCalls.push(`        await ${functionName}(input, ctx);`);
+    const hookResult = emitPluginModeHookFunction(functionName, hook, translatedActions, diagnostics);
+    functions.push(hookResult.functionCode);
+    hookFactories.push(functionName);
+    if (hookResult.hookFile !== undefined) {
+      hookFiles[hookResult.hookFile.path] = hookResult.hookFile.content;
+    }
   }
 
   if (functions.length === 0) {
@@ -474,7 +480,7 @@ export function emitPluginModeHooks(
   }
 
   return {
-    artifacts: { "index.js": emitPluginModeIndex(functions, dispatcherCalls, options) },
+    artifacts: { "index.js": emitPluginModeIndex(functions, hookFactories, options), ...hookFiles },
     diagnostics,
   };
 }
@@ -483,23 +489,35 @@ function pluginHookFunctionName(id: string): string {
   return `hook_${id.replaceAll(/[^A-Za-z0-9_$]/g, "_")}`;
 }
 
+interface PluginModeHookEmit {
+  functionCode: string;
+  hookFile?: { path: string; content: string };
+}
+
 function emitPluginModeHookFunction(
   functionName: string,
   hook: HookIR,
   actions: HookActionIR[],
   diagnostics: Diagnostic[],
-): string {
+): PluginModeHookEmit {
   const runtimeCodeActions = actions.filter(isOpenCodeRuntimeCodeAction);
   if (runtimeCodeActions.length > 0) {
     const runtimeCode = runtimeCodeActions
       .map((action) => readRuntimeCodeAction(hook, action, diagnostics))
       .join("\n")
       .replaceAll("\r\n", "\n");
-    return normalizeLf(`async function ${functionName}(input, ctx) {
-  const module = await import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}");
-  const plugin = await module.default(input);
-  if (typeof plugin?.event === "function") await plugin.event(ctx);
-}`);
+    return {
+      functionCode: normalizeLf(`async function ${functionName}(input, options) {
+  const module = await import(join(__dirname, "hooks", "${hook.id}.js"));
+  if (typeof module.default !== "function") return {};
+  const plugin = await module.default(input, options);
+  return plugin !== null && typeof plugin === "object" ? plugin : {};
+}`),
+      hookFile: {
+        path: `hooks/${hook.id}.js`,
+        content: normalizeLf(runtimeCode),
+      },
+    };
   }
 
   for (const action of actions) {
@@ -508,22 +526,28 @@ function emitPluginModeHookFunction(
     }
   }
 
-  return normalizeLf(`async function ${functionName}(input, ctx) {
+  return {
+    functionCode: normalizeLf(`async function ${functionName}(input, options) {
   const actions = ${stableStringify(actions)};
-  for (const action of actions) {
-    await runAction(action, input, ctx);
-  }
-}`);
+  return {
+    event: async (ctx) => {
+      for (const action of actions) {
+        await runAction(action, input, ctx);
+      }
+    },
+  };
+}`),
+  };
 }
 
 function emitPluginModeIndex(
   functions: string[],
-  dispatcherCalls: string[],
+  hookFactories: string[],
   options: PluginModeIndexOptions,
 ): string {
-  const eventHook = dispatcherCalls.length === 0
-    ? ""
-    : `\n    event: async (ctx) => {\n${dispatcherCalls.join("\n")}\n    },\n`;
+  const passthroughHookKeys = [...OPENCODE_PLUGIN_HOOK_KEYS]
+    .filter((key) => key !== "event" && key !== "config")
+    .sort((left, right) => left.localeCompare(right));
 
   return normalizeLf(`// 0xcraft-generated OpenCode plugin (plugin mode)
 import { spawn } from "node:child_process";
@@ -533,6 +557,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const mcp = ${stableStringify(options.mcp)};
+const hookFactoryNames = ${stableStringify(hookFactories)};
+const passthroughHookKeys = ${stableStringify(passthroughHookKeys)};
 
 ${emitPluginModeLoaders()}
 
@@ -542,8 +568,19 @@ export default async function zeroXCraftPlugin(input, options) {
   const agents = loadAgents();
   const commands = loadCommands();
   const skillsDir = join(__dirname, "skills");
+  const hookPlugins = [];
 
-  return {${eventHook}
+  for (const hookFactoryName of hookFactoryNames) {
+    const hookFactory = { ${hookFactories.join(", ")} }[hookFactoryName];
+    if (typeof hookFactory !== "function") continue;
+    const hookPlugin = await hookFactory(input, options);
+    if (hookPlugin !== null && typeof hookPlugin === "object") hookPlugins.push(hookPlugin);
+  }
+
+  const plugin = {
+    event: async (ctx) => {
+      await runHookHandlers(hookPlugins, "event", [ctx]);
+    },
     config: async (config) => {
       if (Object.keys(agents).length > 0) config.agent = { ...(config.agent ?? {}), ...agents };
       if (Object.keys(commands).length > 0) config.command = { ...(config.command ?? {}), ...commands };
@@ -553,8 +590,40 @@ export default async function zeroXCraftPlugin(input, options) {
         const paths = Array.isArray(skills.paths) ? skills.paths : [];
         config.skills = { ...skills, paths: [...paths, skillsDir] };
       }
+
+      const configured = await runHookHandlers(hookPlugins, "config", [config]);
+      if (configured !== undefined && configured !== null && typeof configured === "object") {
+        Object.assign(config, configured);
+      }
     },
   };
+
+  for (const key of passthroughHookKeys) {
+    if (hookPlugins.some((hp) => typeof hp[key] === "function")) {
+      plugin[key] = async (...args) => runHookHandlers(hookPlugins, key, args);
+    }
+  }
+
+  return plugin;
+}
+
+async function runHookHandlers(hookPlugins, key, args) {
+  let nextArgs = args;
+  let result;
+  let hasResult = false;
+
+  for (const hookPlugin of hookPlugins) {
+    const handler = hookPlugin?.[key];
+    if (typeof handler !== "function") continue;
+    const value = await handler(...nextArgs);
+    if (value !== undefined) {
+      result = value;
+      hasResult = true;
+      nextArgs = [value, ...nextArgs.slice(1)];
+    }
+  }
+
+  return hasResult ? result : undefined;
 }
 
 ${emitRuntimeHelpers()}`);

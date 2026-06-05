@@ -333,18 +333,19 @@ describe("emitOpenCode", () => {
     expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain("config: async (config) => {");
     expect(fileContent(artifact, ".opencode-plugin/index.js")).toContain("config.agent = { ...(config.agent ?? {}), ...agents };");
 
-    expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual({
+    expect(
+      JSON.parse(fileContent(artifact, ".opencode-plugin/package.json")),
+    ).toEqual({
       author: "Acme",
       description: "Acme OpenCode plugin",
       exports: "./index.js",
-      files: ["index.js", "agents", "commands", "skills"],
+      files: ["index.js", "agents", "commands", "skills", "hooks"],
       homepage: "https://example.test",
       keywords: ["0xcraft", "opencode", "opencode-plugin"],
       license: "MIT",
+      main: "index.js",
       name: "@acme/opencode-plugin",
-      peerDependencies: {
-        "@opencode-ai/plugin": ">=1.0.0",
-      },
+      dependencies: {},
       repository: "https://github.com/acme/plugin",
       sideEffects: false,
       type: "module",
@@ -368,13 +369,13 @@ describe("emitOpenCode", () => {
     expect(artifact.files.map((file) => file.path)).toEqual([".opencode-plugin/index.js", ".opencode-plugin/package.json"]);
     const index = fileContent(artifact, ".opencode-plugin/index.js");
     expect(index).toContain("export default async function zeroXCraftPlugin(input, options) {");
-    expect(index.indexOf("async function hook_alpha_hook(input, ctx)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, ctx)"));
-    expect(index).toContain("await hook_alpha_hook(input, ctx);");
-    expect(index).toContain("await hook_zeta_hook(input, ctx);");
-    expect(index.indexOf("await hook_alpha_hook(input, ctx);")).toBeLessThan(index.indexOf("await hook_zeta_hook(input, ctx);"));
+    expect(index.indexOf("async function hook_alpha_hook(input, options)")).toBeLessThan(index.indexOf("async function hook_zeta_hook(input, options)"));
+    expect(index).toContain("const hookFactoryNames = [");
+    expect(index).toContain("hook_alpha_hook");
+    expect(index).toContain("hook_zeta_hook");
   });
 
-  test("plugin mode embeds Unicode runtime_code with Node-safe base64", () => {
+  test("plugin mode emits runtime_code hooks as separate files", () => {
     const runtimeCode = "export default async function plugin() {\n  return { event: async () => console.log('snowman ☃️ and cyrillic Ж') };\n}\n";
     const artifact = emitOpenCode([
       hookFixture({
@@ -384,9 +385,28 @@ describe("emitOpenCode", () => {
     ], { mode: "plugin" });
 
     const index = fileContent(artifact, ".opencode-plugin/index.js");
-    expect(index).toContain(`import("data:text/javascript;base64,${Buffer.from(runtimeCode).toString("base64")}")`);
-    expect(index).toContain("await hook_unicode_runtime(input, ctx);");
+    expect(index).toContain(`import(join(__dirname, "hooks", "unicode-runtime.js"))`);
+    expect(index).toContain("const hookFactoryNames = [");
+    expect(index).toContain("hook_unicode_runtime");
+    expect(fileContent(artifact, ".opencode-plugin/hooks/unicode-runtime.js")).toBe(runtimeCode);
     expect(artifact.ok).toBe(true);
+  });
+
+  test("plugin mode forwards runtime_code config hook", async () => {
+    const runtimeCode = "export default async function plugin() {\n  return { config: async (config) => { config.runtimeHook = true; } };\n}\n";
+    const artifact = emitOpenCode([
+      hookFixture({
+        id: "runtime-config",
+        actions: [{ type: "runtime_code", runtime: "opencode", body: runtimeCode }],
+      }),
+    ], { mode: "plugin" });
+
+    const module = await importGeneratedPlugin(artifact);
+    const hooks = await module.default({ directory: "/repo" }, {});
+    const config: Record<string, unknown> = {};
+    await hooks.config(config);
+
+    expect(config.runtimeHook).toBe(true);
   });
 
   test("plugin mode config hook mutates OpenCode config with agents, commands, skills path, and mcp", async () => {

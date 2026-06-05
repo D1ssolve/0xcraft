@@ -93,7 +93,7 @@ export async function runBuildCommand(
       diagnostic("error", "ERR_UNSUPPORTED_MODE", "Unsupported build target.", { target: options.target }),
     ], options.strict === true);
     report(finalDiagnostics, options.json === true, stdout, stderr);
-    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics), artifacts };
+    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics, options.strict === true), artifacts };
   }
 
   const mode = parseClaudeMode(options.mode ?? "claude-plugin");
@@ -102,7 +102,7 @@ export async function runBuildCommand(
       diagnostic("error", "ERR_UNSUPPORTED_MODE", "Unsupported Claude build mode.", { mode: options.mode }),
     ], options.strict === true);
     report(finalDiagnostics, options.json === true, stdout, stderr);
-    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics), artifacts };
+    return { diagnostics: finalDiagnostics, exitCode: exitFromDiagnostics(finalDiagnostics, options.strict === true), artifacts };
   }
 
   let config: ZeroxCraftConfig | undefined;
