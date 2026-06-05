@@ -155,7 +155,7 @@ export async function runBuildCommand(
   }
 
   const finalDiagnostics = finalizeDiagnostics(diagnostics, options.strict === true);
-  const exitCode = exitFromDiagnostics(finalDiagnostics);
+  const exitCode = exitFromDiagnostics(finalDiagnostics, options.strict === true);
 
   if (exitCode !== 1 && options.validate !== true) {
     for (const plan of artifactPlans) {
@@ -169,7 +169,7 @@ export async function runBuildCommand(
     }
   }
 
-  const finalExitCode = exitFromDiagnostics(finalDiagnostics);
+  const finalExitCode = exitFromDiagnostics(finalDiagnostics, options.strict === true);
   report(finalDiagnostics, options.json === true, stdout, stderr);
   return { diagnostics: finalDiagnostics, exitCode: finalExitCode, artifacts };
 }
@@ -261,9 +261,9 @@ function upgradeWarnToError(diagnostic: Diagnostic): Diagnostic {
   return diagnostic.severity === "warn" ? { ...diagnostic, severity: "error" } : diagnostic;
 }
 
-function exitFromDiagnostics(diagnostics: Diagnostic[]): 0 | 1 | 2 {
+function exitFromDiagnostics(diagnostics: Diagnostic[], strict: boolean): 0 | 1 | 2 {
   if (diagnostics.some((entry) => entry.severity === "error")) return 1;
-  if (diagnostics.some((entry) => entry.severity === "warn")) return 2;
+  if (strict && diagnostics.some((entry) => entry.severity === "warn")) return 2;
   return 0;
 }
 

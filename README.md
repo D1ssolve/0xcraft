@@ -176,6 +176,7 @@ Create `.0xcraft/config.json` or `.0xcraft/config.jsonc`. The schema is strict: 
 | `0xcraft build --target opencode --opencode-mode filesystem\|plugin` | Choose the OpenCode output mode. Default is `filesystem`. |
 | `0xcraft build --validate` | Dry-run without writing artifacts. |
 | `0xcraft build --force` | Overwrite existing generated files. |
+| `0xcraft build --strict` | Upgrade WARN diagnostics to errors (affects exit code). Without `--strict`, WARN is non-fatal. |
 | `0xcraft convert --from <platform> --to <platform>` | Import one platform and emit another through IR. |
 | `0xcraft import --from <platform> --overwrite` | Import platform files into the 0xcraft resource tree. |
 | `0xcraft doctor --target all --strict --json` | Run diagnostics and capability matrix checks. |
