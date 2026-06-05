@@ -336,15 +336,17 @@ describe("emitOpenCode", () => {
     expect(JSON.parse(fileContent(artifact, ".opencode-plugin/package.json"))).toEqual({
       author: "Acme",
       description: "Acme OpenCode plugin",
+      exports: "./index.js",
+      files: ["index.js", "agents", "commands", "skills"],
       homepage: "https://example.test",
-      keywords: ["opencode", "0xcraft"],
+      keywords: ["0xcraft", "opencode", "opencode-plugin"],
       license: "MIT",
-      main: "index.js",
       name: "@acme/opencode-plugin",
       peerDependencies: {
-        "@opencode-ai/sdk": ">=1.0.0",
+        "@opencode-ai/plugin": ">=1.0.0",
       },
       repository: "https://github.com/acme/plugin",
+      sideEffects: false,
       type: "module",
       version: "1.2.3",
     });

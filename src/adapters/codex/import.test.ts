@@ -267,6 +267,39 @@ describe("importCodex", () => {
     }
   });
 
+  it("imports extended codex MCP policy fields", () => {
+    const dir = createTempDir();
+    try {
+      writeFileSync(join(dir, ".mcp.json"), JSON.stringify({
+        mcp_servers: {
+          "policy-server": {
+            command: "npx",
+            args: ["-y", "@acme/mcp"],
+            required: true,
+            startup_timeout_sec: 30,
+            tool_timeout_sec: 45,
+            default_tools_approval_mode: "prompt",
+            tools: {
+              search: { approval_mode: "approve" },
+            },
+          },
+        },
+      }));
+
+      const result = importCodex(dir);
+      const mcp = result.ir.find((resource) => resource.kind === "mcp" && resource.id === "policy-server");
+      const codex = (mcp?.platform as { codex?: Record<string, unknown> } | undefined)?.codex;
+
+      expect(codex?.required).toBe(true);
+      expect(codex?.startup_timeout_sec).toBe(30);
+      expect(codex?.tool_timeout_sec).toBe(45);
+      expect(codex?.default_tools_approval_mode).toBe("prompt");
+      expect(codex?.tools).toEqual({ search: { approval_mode: "approve" } });
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("handles empty project directory gracefully", () => {
     const dir = createTempDir();
     try {

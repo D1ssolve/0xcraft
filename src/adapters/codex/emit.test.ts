@@ -223,6 +223,39 @@ describe("emitCodex", () => {
     });
   });
 
+  test("emits extended codex MCP policy fields", () => {
+    const result = emitCodex([
+      mcp("docs", {
+        command: "npx",
+        args: ["docs-mcp"],
+      }, {
+        required: true,
+        startup_timeout_sec: 20,
+        tool_timeout_sec: 50,
+        default_tools_approval_mode: "prompt",
+        tools: {
+          read: { approval_mode: "approve" },
+        },
+      }),
+    ], {});
+
+    expect(JSON.parse(file(result, ".mcp.json"))).toEqual({
+      mcp_servers: {
+        docs: {
+          args: ["docs-mcp"],
+          command: "npx",
+          default_tools_approval_mode: "prompt",
+          required: true,
+          startup_timeout_sec: 20,
+          tool_timeout_sec: 50,
+          tools: {
+            read: { approval_mode: "approve" },
+          },
+        },
+      },
+    });
+  });
+
   test("emits plugin manifest and official marketplace shape", () => {
     const result = emitCodex([], {
       emitPlugin: true,
@@ -382,6 +415,7 @@ function skill(
 function mcp(
   id: string,
   common: Partial<McpServerIR["common"]>,
+  codex?: NonNullable<McpServerIR["platform"]["codex"]>,
 ): McpServerIR {
   return {
     id,
@@ -393,7 +427,7 @@ function mcp(
       ...common,
     },
     mcpEnvelope: { sourceShape: "wrapped", emitShape: "wrapped", wrapperKey: "mcp_servers" },
-    platform: { codex: undefined },
+    platform: { codex },
     _sources: {},
   };
 }

@@ -180,12 +180,20 @@ function emitMcpServers(mcps: McpServerIR[]): Record<string, unknown> {
       args: mcp.common.args,
       env: mcp.common.env,
       url: mcp.common.url,
-      http_headers: mcp.common.headers,
+      http_headers: codex?.http_headers ?? mcp.common.headers,
       cwd: codex?.cwd,
       env_vars: codex?.env_vars,
+      experimental_environment: codex?.experimental_environment,
       bearer_token_env_var: codex?.bearer_token_env_var,
       env_http_headers: codex?.env_http_headers,
+      startup_timeout_sec: codex?.startup_timeout_sec,
+      tool_timeout_sec: codex?.tool_timeout_sec,
       enabled: mcp.common.enabled,
+      required: codex?.required,
+      enabled_tools: codex?.enabled_tools,
+      disabled_tools: codex?.disabled_tools,
+      default_tools_approval_mode: codex?.default_tools_approval_mode,
+      tools: codex?.tools,
     });
   }
   return result;

@@ -46,6 +46,7 @@ describe("importClaude", () => {
       const agent = agents[0]!;
       expect(agent.id).toBe("reviewer");
       expect(agent.common.prompt).toBe("You are a code reviewer.");
+      expect(agent.common.model).toBe("sonnet");
       expect(agent.provenance?.importedFrom).toBe("claude-code");
     } finally {
       cleanup(dir);
@@ -219,6 +220,27 @@ describe("importClaude", () => {
         (d) => d.code === "mcp.envelope.normalized" && d.details?.originalType === "streamable-http",
       );
       expect(normalizedDiag).toBeDefined();
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("infers http transport when mcp server type is omitted but url is present", () => {
+    const dir = createTempDir();
+    try {
+      writeFileSync(join(dir, ".mcp.json"), JSON.stringify({
+        mcpServers: {
+          "implicit-http": {
+            url: "https://example.com/mcp",
+          },
+        },
+      }));
+
+      const result = importClaude(dir, { mode: "claude-plugin" });
+      const mcps = result.ir.filter((r) => r.kind === "mcp");
+      expect(mcps.length).toBe(1);
+      expect(mcps[0]!.common.transport).toBe("http");
+      expect(mcps[0]!.common.url).toBe("https://example.com/mcp");
     } finally {
       cleanup(dir);
     }

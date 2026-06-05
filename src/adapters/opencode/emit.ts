@@ -214,23 +214,39 @@ function emitPluginPackageJson(
     });
   }
 
+  const keywords = normalizePluginKeywords(opts?.keywords);
+
   const manifest = sortedObject(removeUndefined({
     name: packageName,
     version: opts?.version ?? "0.0.0",
     type: "module",
-    main: "index.js",
+    exports: "./index.js",
+    files: ["index.js", "agents", "commands", "skills"],
+    sideEffects: false,
     description: opts?.description,
     license: opts?.license,
     author: opts?.author,
     homepage: opts?.homepage,
     repository: opts?.repository,
-    keywords: opts?.keywords === undefined ? undefined : [...opts.keywords],
+    keywords,
     peerDependencies: {
-      "@opencode-ai/sdk": ">=1.0.0",
+      "@opencode-ai/plugin": ">=1.0.0",
     },
   }));
 
   return { path: ".opencode-plugin/package.json", content: `${stableStringify(manifest)}\n`, mode: 0o644 };
+}
+
+function normalizePluginKeywords(keywords: readonly string[] | undefined): string[] | undefined {
+  if (keywords === undefined) {
+    return undefined;
+  }
+
+  const base = ["opencode", "opencode-plugin", "0xcraft"];
+  const combined = [...base, ...keywords]
+    .map((keyword) => keyword.trim())
+    .filter((keyword) => keyword.length > 0);
+  return [...new Set(combined)].sort((left, right) => left.localeCompare(right));
 }
 
 function isValidNpmPackageName(packageName: string): boolean {
