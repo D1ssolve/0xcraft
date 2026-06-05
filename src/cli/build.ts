@@ -118,7 +118,7 @@ export async function runBuildCommand(
     diagnostics.push(...packDiagnostics);
     const sourceRoot = path.resolve(projectDir, config.sourceRoot);
     const localRawFiles = loadSourceTree(sourceRoot, LOADER_PLATFORMS);
-    const rawFiles = [...localRawFiles, ...packRawFiles];
+    const rawFiles = filterDisabledResources([...localRawFiles, ...packRawFiles], config);
     ir = mergeAllResources(rawFiles, config, {});
     diagnostics.push(...ir.flatMap((resource) => resource.diagnostics ?? []));
   } catch (error) {
@@ -172,6 +172,20 @@ export async function runBuildCommand(
   const finalExitCode = exitFromDiagnostics(finalDiagnostics, options.strict === true);
   report(finalDiagnostics, options.json === true, stdout, stderr);
   return { diagnostics: finalDiagnostics, exitCode: finalExitCode, artifacts };
+}
+
+function filterDisabledResources(rawFiles: RawResourceFile[], config: ZeroxCraftConfig): RawResourceFile[] {
+  const disabledMap: Record<string, string[]> = {
+    agent: config.disabled.agents,
+    skill: config.disabled.skills,
+    hook: config.disabled.hooks,
+    mcp: config.disabled.mcpServers,
+  };
+
+  return rawFiles.filter((file) => {
+    const disabledList = disabledMap[file.kind];
+    return disabledList === undefined || !disabledList.includes(file.id);
+  });
 }
 
 function parseTarget(value: string): BuildTarget | undefined {
