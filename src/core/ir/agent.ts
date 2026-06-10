@@ -47,6 +47,7 @@ export const OpenCodeAgentMeta = z.object({
     path: z.string().optional(),
   }).strict().optional(),
   experimental: z.record(z.string(), z.unknown()).optional(),
+  external_directory: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 export const ClaudeAgentMeta = z.object({

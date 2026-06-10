@@ -217,6 +217,66 @@ describe("importOpenCode", () => {
     }
   });
 
+  it("imports agent external_directory from opencode.json", () => {
+    const dir = createTempDir();
+    try {
+      writeFileSync(join(dir, "opencode.json"), JSON.stringify({
+        agent: {
+          "spec-driven-gpt": {
+            description: "Spec writer",
+            mode: "subagent",
+            model: "gpt-4o",
+            external_directory: {
+              "~/.config/opencode/agents/spec-driven-gpt/references*": "allow",
+            },
+          },
+        },
+      }));
+
+      const result = importOpenCode(dir);
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "spec-driven-gpt");
+      expect(agent).toBeDefined();
+      if (agent?.kind !== "agent") throw new Error("expected agent");
+      expect((agent.platform as Record<string, unknown>)?.opencode).toBeDefined();
+      const opencode = (agent.platform as Record<string, Record<string, unknown>>)?.opencode;
+      expect(opencode?.external_directory).toEqual({
+        "~/.config/opencode/agents/spec-driven-gpt/references*": "allow",
+      });
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("imports agent external_directory from markdown frontmatter", () => {
+    const dir = createTempDir();
+    try {
+      const agentsDir = join(dir, ".opencode", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(join(agentsDir, "spec-driven-gpt.md"), [
+        "---",
+        "name: spec-driven-gpt",
+        "description: Spec writer",
+        "mode: subagent",
+        "model: gpt-4o",
+        "external_directory:",
+        "  ~/.config/opencode/agents/spec-driven-gpt/references*: allow",
+        "---",
+        "You write specs.",
+      ].join("\n"));
+
+      const result = importOpenCode(dir);
+      const agent = result.ir.find((r) => r.kind === "agent" && r.id === "spec-driven-gpt");
+      expect(agent).toBeDefined();
+      if (agent?.kind !== "agent") throw new Error("expected agent");
+      const opencode = (agent.platform as Record<string, Record<string, unknown>>)?.opencode;
+      expect(opencode?.external_directory).toEqual({
+        "~/.config/opencode/agents/spec-driven-gpt/references*": "allow",
+      });
+    } finally {
+      cleanup(dir);
+    }
+  });
+
   it("imports MCP remote servers from opencode.json", () => {
     const dir = createTempDir();
     try {

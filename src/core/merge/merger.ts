@@ -39,7 +39,7 @@ const COMMON_KEYS: Record<ResourceKind, readonly string[]> = {
 
 const PLATFORM_KEYS: Record<ResourceKind, Record<PlatformId, readonly string[]>> = {
   agent: {
-    opencode: ["schema", "enabled", "role", "mode", "model", "color", "temperature", "tools", "permissions", "mcpServers", "plugin", "experimental"],
+    opencode: ["schema", "enabled", "role", "mode", "model", "color", "temperature", "tools", "permission", "mcpServers", "plugin", "experimental"],
     claude: ["name", "description", "model", "effort", "maxTurns", "tools", "disallowedTools", "skills", "memory", "background", "isolation", "permissionMode", "hooks", "mcpServers", "color", "initialPrompt", "plugin"],
     codex: ["name", "description", "developer_instructions", "nickname_candidates", "model", "model_reasoning_effort", "sandbox_mode", "mcp_servers", "skills", "approval_policy", "permissionProfiles", "permissions", "agents"],
   },

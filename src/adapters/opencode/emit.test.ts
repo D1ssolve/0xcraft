@@ -174,6 +174,29 @@ describe("emitOpenCode", () => {
     );
   });
 
+  test("emits agent external_directory inside permission frontmatter", () => {
+    const artifact = emitOpenCode([
+      agentFixture({
+        id: "spec-driven-gpt",
+        platform: {
+          opencode: {
+            permission: {
+              question: "allow",
+              external_directory: {
+                "~/.config/opencode/agents/spec-driven-gpt/references*": "allow",
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const content = fileContent(artifact, ".opencode/agents/spec-driven-gpt.md");
+    expect(content).toContain("permission:");
+    expect(content).toContain("external_directory");
+    expect(content).toContain("references*");
+  });
+
   test("emits skills with only native OpenCode frontmatter and diagnoses Claude tool lists", () => {
     const artifact = emitOpenCode([
       skillFixture({

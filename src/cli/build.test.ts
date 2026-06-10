@@ -36,6 +36,30 @@ describe("0xcraft build", () => {
     expect(existsSync(join(project, "opencode.json"))).toBe(false);
   });
 
+  test("preserves permission.external_directory from agent.opencode.md in plugin output", async () => {
+    const project = createProject();
+
+    mkdirSync(join(project, "agents", "test-agent"), { recursive: true });
+    writeFileSync(
+      join(project, "agents", "test-agent", "AGENT.md"),
+      "---\nname: Test Agent\ndescription: Test agent\n---\nHandles tests.\n",
+    );
+    writeFileSync(
+      join(project, "agents", "test-agent", "agent.opencode.md"),
+      "---\nmode: subagent\nmodel: gpt-4o\npermission:\n  question: allow\n  external_directory:\n    ~/.config/opencode/agents/test-agent/references*: allow\n---\n",
+    );
+
+    const result = await runBuildCommand(project, { target: "opencode", opencodeMode: "plugin" });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+
+    const generatedAgent = readFileSync(join(project, ".opencode-plugin", "agents", "test-agent.md"), "utf8");
+    expect(generatedAgent).toContain("permission:");
+    expect(generatedAgent).toContain("external_directory");
+    expect(generatedAgent).toContain("references*");
+  });
+
   test("builds opencode filesystem artifacts when --opencode-mode filesystem is provided", async () => {
     const project = createProject({ opencodeMode: "plugin" });
 

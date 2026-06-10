@@ -53,6 +53,7 @@ interface OpenCodeAgentConfig {
   options?: Record<string, unknown>;
   tools?: Record<string, unknown>;
   prompt?: string;
+  external_directory?: Record<string, unknown>;
 }
 
 interface OpenCodeMcpLocalConfig {
@@ -228,6 +229,7 @@ function importMarkdownAgent(
   if (fm.steps !== undefined) platform.steps = fm.steps;
   if (fm.maxSteps !== undefined) platform.maxSteps = fm.maxSteps;
   if (fm.options !== undefined) platform.options = fm.options;
+  if (fm.external_directory !== undefined) platform.external_directory = fm.external_directory;
 
   const permissions = fm.permission !== undefined
     ? mapOpenCodePermission(fm.permission as Record<string, unknown>)
@@ -273,6 +275,7 @@ function importConfigAgent(
   if (config.disable !== undefined) platform.disable = config.disable;
   if (config.hidden !== undefined) platform.hidden = config.hidden;
   if (config.options !== undefined) platform.options = config.options;
+  if (config.external_directory !== undefined) platform.external_directory = config.external_directory;
 
   const permissions = config.permission !== undefined
     ? mapOpenCodePermission(config.permission)
